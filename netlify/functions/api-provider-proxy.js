@@ -4,9 +4,6 @@ const axios = require('axios');
 const admin = require('firebase-admin');
 
 // --- Firebase Admin Initialization ---
-// This secures the function so only the logged-in admin can use it.
-// IMPORTANT: Ensure your Netlify environment variables are set for this to work.
-// Required variables: FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -17,7 +14,6 @@ if (!admin.apps.length) {
   });
 }
 
-// The email address of the admin user who is allowed to access this function.
 const ADMIN_EMAIL = "admin@paksmm.com";
 
 exports.handler = async (event) => {
@@ -49,13 +45,10 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing required parameters: apiUrl, apiKey, action' }) };
     }
 
-    // Construct the request body for the external SMM panel API
-    // Most SMM panels use 'application/x-www-form-urlencoded' format.
     const requestBody = new URLSearchParams();
     requestBody.append('key', apiKey);
     requestBody.append('action', action);
 
-    // Add any additional parameters for actions like 'add' or 'status'
     if (params) {
       for (const key in params) {
         requestBody.append(key, params[key]);
@@ -67,21 +60,28 @@ exports.handler = async (event) => {
     // Make the external API call using axios
     const response = await axios.post(apiUrl, requestBody, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        // ** FIX: Add a standard User-Agent header to bypass Cloudflare bot detection **
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
       }
     });
 
-    // Return the exact response from the provider back to the admin panel frontend
     return {
       statusCode: 200,
       body: JSON.stringify(response.data),
     };
 
   } catch (error) {
-    console.error('API Provider Proxy Error:', error.response ? error.response.data : error.message);
+    // Log the actual response if it's a Cloudflare block page
+    const errorDetails = error.response ? error.response.data : error.message;
+    console.error('API Provider Proxy Error:', errorDetails);
+    
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Failed to fetch from API provider.', details: error.message }),
+      body: JSON.stringify({ 
+        error: 'Failed to fetch from API provider. The provider may be blocking our server.', 
+        details: 'Cloudflare security challenge was triggered.'
+      }),
     };
   }
 };
