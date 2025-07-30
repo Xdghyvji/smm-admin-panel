@@ -1455,6 +1455,8 @@ function ManageServicesPage() {
             cost: parseFloat(serviceData.cost) || 0,
             min: parseInt(serviceData.min, 10) || 0,
             max: parseInt(serviceData.max, 10) || 0,
+            // NEW: Parse comma-separated tags into an array
+            tags: serviceData.tags ? serviceData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
         };
 
         if (editingService && editingCategory) {
@@ -1526,7 +1528,7 @@ function ManageServicesPage() {
                             <table className="w-full text-sm">
                                 <thead className="text-left bg-gray-100">
                                     <tr>
-                                        <th className="p-3">ID</th><th className="p-3">Name</th><th className="p-3">Rate</th><th className="p-3">Cost</th>
+                                        <th className="p-3">ID</th><th className="p-3">Name & Tags</th><th className="p-3">Rate</th><th className="p-3">Cost</th>
                                         <th className="p-3">Min/Max</th><th className="p-3">Actions</th>
                                     </tr>
                                 </thead>
@@ -1534,7 +1536,12 @@ function ManageServicesPage() {
                                     {cat.services.map(service => (
                                         <tr key={service.id} className="border-t">
                                             <td className="p-3 font-mono">{service.id_api}</td>
-                                            <td className="p-3 font-semibold">{service.name}</td>
+                                            <td className="p-3 font-semibold">
+                                                {service.name}
+                                                <div className="flex flex-wrap gap-1 mt-1">
+                                                    {service.tags?.map(tag => <ServiceTag key={tag} tagName={tag} />)}
+                                                </div>
+                                            </td>
                                             <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.rate)).toFixed(2)}</td>
                                             <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.cost || 0)).toFixed(2)}</td>
                                             <td className="p-3">{service.min} / {service.max}</td>
@@ -1596,7 +1603,10 @@ function ServiceModal({ category, service, onSave, onClose }) {
         max: service ? service.max : 0,
         providerId: service ? service.providerId : '',
         providerServiceId: service ? service.providerServiceId : '',
-        category: category ? category.name : ''
+        category: category ? category.name : '',
+        // NEW: Handle tags and description
+        description: service ? service.description : '',
+        tags: service && service.tags ? service.tags.join(', ') : '',
     });
 
     useEffect(() => {
@@ -1685,6 +1695,8 @@ function ServiceModal({ category, service, onSave, onClose }) {
                     <div><label className="block text-sm font-medium mb-1">Cost (per 1000)</label><input type="number" name="cost" step="0.01" value={formData.cost} onChange={handleChange} className="w-full p-2 border rounded" placeholder="Your cost for this service" required /></div>
                     <div><label className="block text-sm font-medium mb-1">Min Order</label><input type="number" name="min" value={formData.min} onChange={handleChange} className="w-full p-2 border rounded" required /></div>
                     <div><label className="block text-sm font-medium mb-1">Max Order</label><input type="number" name="max" value={formData.max} onChange={handleChange} className="w-full p-2 border rounded" required /></div>
+                    <div className="md:col-span-2"><label className="block text-sm font-medium mb-1">Description</label><textarea name="description" value={formData.description} onChange={handleChange} rows="3" className="w-full p-2 border rounded" placeholder="Detailed service description for users."></textarea></div>
+                    <div className="md:col-span-2"><label className="block text-sm font-medium mb-1">Tags (comma-separated)</label><input type="text" name="tags" value={formData.tags} onChange={handleChange} className="w-full p-2 border rounded" placeholder="e.g., High Quality, Fast Start, Refill Guarantee" /></div>
                 </div>
                 <div className="p-4 bg-gray-50 flex justify-end gap-4">
                     <button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded">Cancel</button>
@@ -2927,6 +2939,26 @@ const StatusBadge = ({ status }) => {
     };
     return (<span className={`px-2.5 py-1 text-xs font-semibold rounded-full capitalize ${statusMap[status] || 'bg-gray-100 text-gray-800'}`}>{status}</span>);
 };
+
+// --- NEW Service Tag Component (for Admin Panel) ---
+const ServiceTag = ({ tagName }) => {
+    const tagStyles = {
+        'High Quality': 'bg-amber-100 text-amber-800',
+        'Fast Start': 'bg-sky-100 text-sky-800',
+        'Drip-Feed Available': 'bg-blue-100 text-blue-800',
+        'Refill Guarantee': 'bg-green-100 text-green-800',
+        'Bot': 'bg-red-100 text-red-800',
+        'Real Users': 'bg-teal-100 text-teal-800',
+        'New': 'bg-purple-100 text-purple-800',
+        'Popular': 'bg-pink-100 text-pink-800',
+    };
+    return (
+        <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${tagStyles[tagName] || 'bg-gray-100 text-gray-800'}`}>
+            {tagName}
+        </span>
+    );
+};
+
 
 // --- NEW Confirmation Modal ---
 function ConfirmationModal({ message, onConfirm, onCancel }) {
