@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, query, onSnapshot, doc, getDoc, updateDoc, orderBy, getDocs, where, addDoc, collectionGroup, writeBatch, Timestamp, deleteDoc, setDoc, limit, runTransaction } from 'firebase/firestore';
-import { Users, DollarSign, LifeBuoy, LogOut, Check, X, Eye as EyeIcon, Edit, ShoppingCart, UserPlus, Slash, BarChart, Settings, PlusCircle, Trash2, Send, Crown, CreditCard, Palette, Gift, Trophy, RefreshCw, Star, Sun, Moon, Droplets, Flame, Leaf, Zap, Mountain, Wind, Server, TrendingUp, FileText, Activity, AlertTriangle, ChevronsUpDown } from 'lucide-react';
+import { Users, DollarSign, LifeBuoy, LogOut, Check, X, Eye as EyeIcon, Edit, ShoppingCart, UserPlus, Slash, BarChart, Settings, PlusCircle, Trash2, Send, Crown, CreditCard, Palette, Gift, Trophy, RefreshCw, Star, Sun, Moon, Droplets, Flame, Leaf, Zap, Mountain, Wind, Server, TrendingUp, FileText, Activity, AlertTriangle, ChevronsUpDown, Repeat, Ban, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 
 // --- Firebase Configuration ---
@@ -1709,75 +1709,183 @@ function ServiceModal({ category, service, onSave, onClose }) {
 
 // --- All Orders Page ---
 function AllOrdersPage() {
-    const [orders, setOrders] = useState([]);
+    const [allData, setAllData] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [editingOrder, setEditingOrder] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
+    const [currentPage, setCurrentPage] = useState(1);
+    const ordersPerPage = 20;
 
     useEffect(() => {
         setLoading(true);
-        const q = query(collectionGroup(db, 'orders'));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const allOrders = snapshot.docs.map(doc => ({
-                id: doc.id,
-                userId: doc.ref.parent.parent.id,
-                ...doc.data()
-            }));
-            allOrders.sort((a, b) => (b.createdAt?.toDate && a.createdAt?.toDate) ? b.createdAt.toDate() - a.createdAt.toDate() : 0);
-            setOrders(allOrders);
+        // Listener for all orders across all users
+        const ordersQuery = query(collectionGroup(db, 'orders'), orderBy('createdAt', 'desc'));
+        const unsubscribeOrders = onSnapshot(ordersQuery, async (ordersSnapshot) => {
+            // Fetch all users and services once to create lookup maps
+            const usersQuery = await getDocs(collection(db, 'users'));
+            const usersMap = new Map(usersQuery.docs.map(doc => [doc.id, doc.data()]));
+
+            const servicesQuery = await getDocs(collectionGroup(db, 'services'));
+            const servicesMap = new Map();
+            servicesQuery.forEach(doc => {
+                 // We use the firestore doc.id as the key, which is stored as `firestoreServiceId` on the order
+                servicesMap.set(doc.id, doc.data());
+            });
+
+            const combinedData = ordersSnapshot.docs.map(doc => {
+                const order = {
+                    id: doc.id,
+                    userId: doc.ref.parent.parent.id,
+                    ...doc.data()
+                };
+                
+                // Enrich order data with user and service info
+                const user = usersMap.get(order.userId);
+                const service = servicesMap.get(order.firestoreServiceId); // Match using firestoreServiceId
+                
+                const cost = service?.cost ? (order.quantity / 1000) * service.cost : 0;
+                const profit = order.charge - cost;
+
+                return {
+                    ...order,
+                    userName: user?.name || 'Unknown',
+                    userPhotoURL: user?.photoURL,
+                    serviceTags: service?.tags || [],
+                    profit: profit
+                };
+            });
+
+            setAllData(combinedData);
             setLoading(false);
         }, (error) => {
             console.error("Error fetching all orders:", error);
             setLoading(false);
         });
-        return () => unsubscribe();
+
+        return () => unsubscribeOrders();
     }, []);
 
-    const filteredOrders = orders
-        .filter(o => statusFilter === 'All' || o.status === statusFilter)
-        .filter(o =>
-            (o.orderId || '').includes(searchTerm) ||
-            (o.userEmail || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (o.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase())
-        );
+    const handleStatusChange = async (order, newStatus) => {
+        const orderRef = doc(db, `users/${order.userId}/orders`, order.id);
+        try {
+            await updateDoc(orderRef, { status: newStatus });
+            await logAdminAction("ORDER_STATUS_MANUAL_CHANGE", { orderId: order.id, newStatus });
+        } catch (error) {
+            console.error("Failed to update order status:", error);
+            alert("Error: Could not update status.");
+        }
+    };
 
-    if (loading) return <p>Loading orders...</p>;
+    // Filtering logic
+    const filteredOrders = useMemo(() => {
+        return allData
+            .filter(o => statusFilter === 'All' || o.status === statusFilter)
+            .filter(o =>
+                (o.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (o.userEmail || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (o.userName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (o.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase())
+            );
+    }, [allData, statusFilter, searchTerm]);
+
+    // Pagination logic
+    const indexOfLastOrder = currentPage * ordersPerPage;
+    const indexOfFirstOrder = indexOfLastOrder - ordersPerPage;
+    const currentOrders = filteredOrders.slice(indexOfFirstOrder, indexOfLastOrder);
+    const totalPages = Math.ceil(filteredOrders.length / ordersPerPage);
+
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
+    if (loading) return <p>Loading all orders...</p>;
 
     return (
         <div className="bg-white/80 backdrop-blur-sm p-6 rounded-lg shadow">
             <h2 className="text-2xl font-semibold mb-4">All User Orders</h2>
-            <input type="text" placeholder="Search by Order ID, Email, or Service..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full max-w-sm p-2 border rounded mb-4" />
-            <div className="flex space-x-2 mb-4">
-                {['All', 'Pending', 'Processing', 'Completed', 'Canceled', 'Partial'].map(status => (
-                    <button
-                        key={status}
-                        onClick={() => setStatusFilter(status)}
-                        className={`px-3 py-1 text-sm rounded-full ${statusFilter === status ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
-                    >
-                        {status}
-                    </button>
-                ))}
+            <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-4">
+                <input type="text" placeholder="Search by Order ID, Email, Name, or Service..." value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setCurrentPage(1);}} className="w-full md:w-1/2 p-2 border rounded" />
+                <div className="flex items-center gap-4">
+                    <label>Status:</label>
+                    <select value={statusFilter} onChange={(e) => {setStatusFilter(e.target.value); setCurrentPage(1);}} className="p-2 border rounded">
+                        {['All', 'Pending', 'Processing', 'Completed', 'Canceled', 'Partial', 'Error'].map(status => (
+                            <option key={status} value={status}>{status}</option>
+                        ))}
+                    </select>
+                </div>
             </div>
-            <div className="overflow-x-auto"><table className="w-full text-sm">
-                <thead className="text-left bg-gray-100"><tr><th className="p-3">Date</th><th className="p-3">Order ID</th><th className="p-3">User</th><th className="p-3">Service</th><th className="p-3">Amount</th><th className="p-3">Status</th><th className="p-3">Actions</th></tr></thead>
-                <tbody>
-                    {filteredOrders.map(order => (
-                        <tr key={`${order.userId}-${order.id}`} className="border-b">
-                            <td className="p-3">{order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString() : 'N/A'}</td>
-                            <td className="p-3 font-mono">{order.orderId}</td>
-                            <td className="p-3">{order.userEmail}</td>
-                            <td className="p-3">{order.serviceName}</td>
-                            <td className="p-3">{CURRENCY_SYMBOL} {(order.charge || 0).toFixed(2)}</td>
-                            <td className="p-3 capitalize"><StatusBadge status={order.status} /></td>
-                            <td className="p-3"><button onClick={() => setEditingOrder(order)} className="p-2 bg-gray-200 rounded hover:bg-gray-300"><Edit size={16} /></button></td>
+            
+            <div className="overflow-x-auto">
+                <table className="w-full min-w-[1600px] text-sm whitespace-nowrap">
+                    <thead className="text-left bg-gray-100">
+                        <tr>
+                            <th className="p-3">User</th>
+                            <th className="p-3">Order Date</th>
+                            <th className="p-3">Order ID</th>
+                            <th className="p-3">Service</th>
+                            <th className="p-3">Start Count</th>
+                            <th className="p-3">Remaining</th>
+                            <th className="p-3">Final Count</th>
+                            <th className="p-3">Amount</th>
+                            <th className="p-3">Profit</th>
+                            <th className="p-3">Status</th>
+                            <th className="p-3">Actions</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
-                {orders.length === 0 && <p className="text-center py-4 text-gray-500">No orders found.</p>}
+                    </thead>
+                    <tbody>
+                        {currentOrders.map(order => {
+                            const finalCount = (order.start_count || 0) + (order.quantity || 0);
+                            return (
+                            <tr key={order.id} className="border-b">
+                                <td className="p-3">
+                                    <div className="flex items-center gap-2">
+                                        <img src={order.userPhotoURL || `https://placehold.co/40x40/e2e8f0/64748b?text=${(order.userName || 'U').charAt(0)}`} alt={order.userName} className="w-8 h-8 rounded-full object-cover" />
+                                        <div>
+                                            <p className="font-semibold">{order.userName}</p>
+                                            <p className="text-xs text-slate-500">{order.userEmail}</p>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="p-3">{order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString() : 'N/A'}</td>
+                                <td className="p-3 font-mono text-xs">{order.id}</td>
+                                <td className="p-3 max-w-xs truncate">
+                                    <p title={order.serviceName}>{order.serviceName}</p>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {order.serviceTags?.map(tag => <ServiceTag key={tag} tagName={tag} />)}
+                                    </div>
+                                </td>
+                                <td className="p-3">{order.start_count || 'N/A'}</td>
+                                <td className="p-3">{order.remains || 'N/A'}</td>
+                                <td className="p-3">{finalCount}</td>
+                                <td className="p-3 font-semibold">{CURRENCY_SYMBOL}{(order.charge || 0).toFixed(2)}</td>
+                                <td className="p-3 font-semibold text-green-600">{CURRENCY_SYMBOL}{(order.profit || 0).toFixed(2)}</td>
+                                <td className="p-3">
+                                    <select value={order.status} onChange={(e) => handleStatusChange(order, e.target.value)} className="p-1 border rounded text-xs">
+                                        {['Pending', 'Processing', 'Completed', 'Canceled', 'Partial', 'Error'].map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </td>
+                                <td className="p-3">
+                                    <div className="flex gap-2">
+                                        <button className="p-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200" title="Refill"><RefreshCw size={14} /></button>
+                                        <button className="p-2 bg-red-100 text-red-600 rounded hover:bg-red-200" title="Cancel"><Ban size={14} /></button>
+                                        <button className="p-2 bg-green-100 text-green-600 rounded hover:bg-green-200" title="Reorder"><Repeat size={14} /></button>
+                                    </div>
+                                </td>
+                            </tr>
+                        )})}
+                    </tbody>
+                </table>
+                {filteredOrders.length === 0 && <p className="text-center py-4 text-gray-500">No orders found.</p>}
             </div>
-            {editingOrder && <OrderEditModal order={editingOrder} onClose={() => setEditingOrder(null)} onUpdate={setOrders} />}
+            
+            {/* Pagination Controls */}
+            <div className="mt-4 flex justify-between items-center">
+                <span className="text-sm text-gray-700">
+                    Showing {indexOfFirstOrder + 1} to {Math.min(indexOfLastOrder, filteredOrders.length)} of {filteredOrders.length} orders
+                </span>
+                <div className="flex gap-2">
+                    <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50 flex items-center gap-1"><ChevronLeft size={16}/> Prev</button>
+                    <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50 flex items-center gap-1">Next <ChevronRight size={16}/></button>
+                </div>
+            </div>
         </div>
     );
 }
