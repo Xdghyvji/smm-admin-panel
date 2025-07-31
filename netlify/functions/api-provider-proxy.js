@@ -21,7 +21,7 @@ const FALLBACK_USD_TO_PKR_RATE = 283.75; // A safe fallback rate
 // Adjust this percentage to match the provider's final price.
 // This accounts for any commissions or fees they add on top of the base API rate.
 // Example: 3.0 means we add 3% to the final converted price.
-const PROVIDER_FEE_BUFFER_PERCENTAGE = 6.0;
+const PROVIDER_FEE_BUFFER_PERCENTAGE = 5.5;
 
 /**
  * Fetches the live USD to PKR exchange rate from a free API.
