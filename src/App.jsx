@@ -1613,7 +1613,6 @@ function ServiceModal({ category, service, onSave, onClose }) {
         providerId: service ? service.providerId : '',
         providerServiceId: service ? service.providerServiceId : '',
         category: category ? category.name : '',
-        // NEW: Handle tags and description
         description: service ? service.description : '',
         tags: service && service.tags ? service.tags.join(', ') : '',
     });
@@ -1639,7 +1638,6 @@ function ServiceModal({ category, service, onSave, onClose }) {
         setIsFetching(true);
         const selectedProvider = providers.find(p => p.id === formData.providerId);
         try {
-            // Securely call the backend proxy
             const allServices = await callProviderApi(selectedProvider, 'services');
             const serviceDetail = allServices.find(s => s.service === formData.providerServiceId);
 
@@ -1647,14 +1645,16 @@ function ServiceModal({ category, service, onSave, onClose }) {
                 throw new Error("Service ID not found at provider.");
             }
 
+            const convertedPrice = parseFloat(serviceDetail.rate).toFixed(2);
             setFormData(prev => ({
                 ...prev,
                 name: serviceDetail.name,
-                rate: (parseFloat(serviceDetail.rate) * 1.2).toFixed(2), // Example: Auto-add 20% markup
-                cost: parseFloat(serviceDetail.rate).toFixed(2),
+                rate: convertedPrice, 
+                cost: convertedPrice,
                 min: serviceDetail.min,
                 max: serviceDetail.max,
-                id_api: serviceDetail.service, // Use the provider's ID as the internal API ID
+                id_api: serviceDetail.service,
+                description: serviceDetail.description || '', // Fetch description
             }));
         } catch (error) {
             alert(`Failed to fetch from provider: ${error.message}`);
@@ -1673,7 +1673,6 @@ function ServiceModal({ category, service, onSave, onClose }) {
             <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                 <div className="p-4 border-b"><h3 className="text-lg font-bold">{service ? 'Edit' : 'Add'} Service in {category.name}</h3></div>
                 
-                {/* API Provider Section */}
                 <div className="p-6 border-b">
                     <h4 className="text-md font-semibold mb-2">Fetch from API Provider</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -1696,7 +1695,6 @@ function ServiceModal({ category, service, onSave, onClose }) {
                     </div>
                 </div>
 
-                {/* Service Details Section */}
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div><label className="block text-sm font-medium mb-1">Service Name</label><input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full p-2 border rounded" required /></div>
                     <div><label className="block text-sm font-medium mb-1">Internal API ID</label><input type="text" name="id_api" value={formData.id_api} onChange={handleChange} className="w-full p-2 border rounded" required /></div>
@@ -2844,18 +2842,19 @@ function ApiProviderModal({ provider, onSave, onClose }) {
         </div>
     );
 }
-// --- NEW Import Service Modal ---
+// --- RE-ENGINEERED Import Service Modal ---
 function ImportServiceModal({ categories, onClose }) {
     const [providers, setProviders] = useState([]);
     const [selectedProvider, setSelectedProvider] = useState('');
-    const [providerServices, setProviderServices] = useState([]);
+    const [groupedServices, setGroupedServices] = useState({});
     const [selectedServices, setSelectedServices] = useState({});
-    const [rateIncrease, setRateIncrease] = useState(20); // Default 20% increase
+    const [rateIncrease, setRateIncrease] = useState(20);
     const [loadingProviders, setLoadingProviders] = useState(true);
     const [fetchingServices, setFetchingServices] = useState(false);
     const [importing, setImporting] = useState(false);
     const [error, setError] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [expandedCategories, setExpandedCategories] = useState({});
 
     useEffect(() => {
         const q = query(collection(db, "api_providers"));
@@ -2870,12 +2869,22 @@ function ImportServiceModal({ categories, onClose }) {
         if (!selectedProvider) return;
         setFetchingServices(true);
         setError('');
-        setProviderServices([]);
+        setGroupedServices({});
         try {
             const provider = providers.find(p => p.id === selectedProvider);
-            // Use the secure proxy function
             const services = await callProviderApi(provider, 'services');
-            setProviderServices(services);
+            
+            // Group services by category
+            const grouped = services.reduce((acc, service) => {
+                const category = service.category || 'Uncategorized';
+                if (!acc[category]) {
+                    acc[category] = [];
+                }
+                acc[category].push(service);
+                return acc;
+            }, {});
+            setGroupedServices(grouped);
+
         } catch (err) {
             setError("Failed to fetch services from provider.");
             console.error(err);
@@ -2883,44 +2892,46 @@ function ImportServiceModal({ categories, onClose }) {
         setFetchingServices(false);
     };
 
-    const handleServiceSelection = (serviceId, categoryId) => {
-        setSelectedServices(prev => ({
-            ...prev,
-            [serviceId]: {
-                ...prev[serviceId],
-                categoryId: categoryId,
-                selected: !!categoryId,
-            }
-        }));
-    };
+    const handleCategorySelection = (categoryName, localCategoryId) => {
+        const servicesInCategory = groupedServices[categoryName];
+        if (!servicesInCategory) return;
 
-    const handleSelectAll = (isChecked) => {
-        if (!isChecked) {
-            setSelectedServices({});
-            return;
-        }
-        const newSelected = {};
-        filteredServices.forEach(service => {
-            // Try to match provider category with a local one
-            const matchedCategory = categories.find(c => c.name.toLowerCase() === service.category.toLowerCase());
-            if (matchedCategory) {
-                newSelected[service.service] = { categoryId: matchedCategory.id, selected: true };
+        const updatedSelection = { ...selectedServices };
+        for (const service of servicesInCategory) {
+            if (localCategoryId) { // If a local category is selected, add/update the service
+                updatedSelection[service.service] = {
+                    ...updatedSelection[service.service],
+                    categoryId: localCategoryId,
+                    selected: true,
+                };
+            } else { // If "Select Category" is chosen, deselect the service
+                if (updatedSelection[service.service]) {
+                    updatedSelection[service.service].selected = false;
+                }
             }
-        });
-        setSelectedServices(newSelected);
+        }
+        setSelectedServices(updatedSelection);
     };
     
-    const filteredServices = useMemo(() => {
-        return providerServices.filter(service =>
-            service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            service.category.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }, [providerServices, searchTerm]);
+    const filteredGroupedServices = useMemo(() => {
+        if (!searchTerm) return groupedServices;
+        const lowercasedFilter = searchTerm.toLowerCase();
+        const filtered = {};
+        for (const categoryName in groupedServices) {
+            const services = groupedServices[categoryName].filter(service =>
+                service.name.toLowerCase().includes(lowercasedFilter)
+            );
+            if (services.length > 0) {
+                filtered[categoryName] = services;
+            }
+        }
+        return filtered;
+    }, [groupedServices, searchTerm]);
 
     const handleImport = async () => {
-        const servicesToImport = Object.entries(selectedServices).filter(([, details]) => details.selected);
+        const servicesToImport = Object.entries(selectedServices).filter(([, details]) => details.selected && details.categoryId);
         if (servicesToImport.length === 0) {
-            setError("No services selected to import.");
+            setError("No services selected with a valid local category.");
             return;
         }
         setImporting(true);
@@ -2930,8 +2941,17 @@ function ImportServiceModal({ categories, onClose }) {
         let count = 0;
 
         for (const [serviceId, details] of servicesToImport) {
-            const serviceData = providerServices.find(s => s.service === serviceId);
-            if (!serviceData || !details.categoryId) continue;
+            let serviceData = null;
+            // Find the service data from the original groupedServices
+            for(const category in groupedServices){
+                const foundService = groupedServices[category].find(s => s.service === serviceId);
+                if(foundService){
+                    serviceData = foundService;
+                    break;
+                }
+            }
+
+            if (!serviceData) continue;
 
             const cost = parseFloat(serviceData.rate);
             const newRate = cost * (1 + rateIncrease / 100);
@@ -2946,6 +2966,7 @@ function ImportServiceModal({ categories, onClose }) {
                 providerId: selectedProvider,
                 providerServiceId: serviceData.service,
                 category: categories.find(c => c.id === details.categoryId)?.name || 'Uncategorized',
+                description: serviceData.description || '', // Import the description
             };
 
             const serviceRef = doc(collection(db, `categories/${details.categoryId}/services`));
@@ -2979,7 +3000,7 @@ function ImportServiceModal({ categories, onClose }) {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex flex-col">
                 <div className="p-4 border-b flex justify-between items-center">
-                    <h3 className="text-lg font-bold">Import Services from API Provider</h3>
+                    <h3 className="text-lg font-bold">Import Services by Category</h3>
                     <button onClick={onClose}><X /></button>
                 </div>
                 <div className="p-6 flex-shrink-0 border-b">
@@ -2991,7 +3012,7 @@ function ImportServiceModal({ categories, onClose }) {
                                 {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
                         </div>
-                         <div className="md:col-span-2">
+                        <div className="md:col-span-2">
                             <label className="block text-sm font-medium mb-1">Search Services</label>
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
@@ -3001,7 +3022,7 @@ function ImportServiceModal({ categories, onClose }) {
                                     value={searchTerm}
                                     onChange={e => setSearchTerm(e.target.value)}
                                     className="w-full p-2 pl-10 border rounded"
-                                    disabled={!providerServices.length}
+                                    disabled={Object.keys(groupedServices).length === 0}
                                 />
                             </div>
                         </div>
@@ -3009,62 +3030,45 @@ function ImportServiceModal({ categories, onClose }) {
                             {fetchingServices ? 'Fetching...' : 'Fetch Services'}
                         </button>
                         <div className="md:col-span-1">
-                               {error && <p className="text-red-500 text-sm">{error}</p>}
+                            {error && <p className="text-red-500 text-sm">{error}</p>}
                         </div>
                     </div>
                 </div>
                 <div className="flex-grow overflow-auto">
-                    {providerServices.length > 0 ? (
-                        <table className="w-full text-sm">
-                            <thead className="sticky top-0 bg-gray-100 z-10">
-                                <tr>
-                                    <th className="p-3 w-10"><input type="checkbox" onChange={e => handleSelectAll(e.target.checked)} /></th>
-                                    <th className="p-3 text-left">Provider Service</th>
-                                    <th className="p-3 text-left">Provider Category</th>
-                                    <th className="p-3 text-right">Cost</th>
-                                    <th className="p-3 text-right">Profit</th>
-                                    <th className="p-3 text-left">Assign to Local Category</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredServices.map(service => {
-                                    const cost = parseFloat(service.rate);
-                                    const profit = cost * (rateIncrease / 100);
-                                    const logo = getSocialLogo(service.category);
-                                    return (
-                                    <tr key={service.service} className="border-b hover:bg-gray-50">
-                                        <td className="p-3 text-center">
-                                            <input type="checkbox" checked={!!selectedServices[service.service]?.selected} onChange={e => handleServiceSelection(service.service, e.target.checked ? selectedServices[service.service]?.categoryId : null)} />
-                                        </td>
-                                        <td className="p-3">
-                                            <div className="flex items-center gap-3">
-                                                {logo && <img src={logo} alt={service.category} className="w-6 h-6 object-contain" />}
-                                                <div>
-                                                    <p className="font-semibold">{service.name}</p>
-                                                    <p className="text-xs text-gray-500">ID: {service.service}</p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="p-3">{service.category}</td>
-                                        <td className="p-3 text-right font-mono">{CURRENCY_SYMBOL}{cost.toFixed(4)}</td>
-                                        <td className="p-3 text-right font-mono text-green-600">{CURRENCY_SYMBOL}{profit.toFixed(4)}</td>
-                                        <td className="p-3">
+                    {Object.keys(filteredGroupedServices).length > 0 ? (
+                        <div className="space-y-2 p-4">
+                            {Object.entries(filteredGroupedServices).map(([categoryName, services]) => (
+                                <div key={categoryName} className="border rounded-lg">
+                                    <div className="p-3 bg-gray-50 flex justify-between items-center cursor-pointer" onClick={() => setExpandedCategories(prev => ({...prev, [categoryName]: !prev[categoryName]}))}>
+                                        <div className="flex items-center gap-3">
+                                            {getSocialLogo(categoryName) && <img src={getSocialLogo(categoryName)} alt={categoryName} className="w-6 h-6" />}
+                                            <h4 className="font-bold">{categoryName} ({services.length})</h4>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-sm">Assign all to:</span>
                                             <select
-                                                value={selectedServices[service.service]?.categoryId || ''}
-                                                onChange={e => handleServiceSelection(service.service, e.target.value)}
-                                                className="w-full p-1 border rounded text-xs"
+                                                onChange={(e) => handleCategorySelection(categoryName, e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="p-1 border rounded text-xs"
                                             >
-                                                <option value="">Select Category</option>
+                                                <option value="">Select Local Category</option>
                                                 {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                                             </select>
-                                        </td>
-                                    </tr>
-                                )})}
-                            </tbody>
-                        </table>
+                                            <ChevronRight className={`transition-transform ${expandedCategories[categoryName] ? 'rotate-90' : ''}`} />
+                                        </div>
+                                    </div>
+                                    {expandedCategories[categoryName] && (
+                                        <div className="overflow-x-auto">
+                                            {/* You can add a table here to show individual services if needed */}
+                                            <p className="p-4 text-sm text-gray-600">All {services.length} services in this category will be assigned to the selected local category.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     ) : (
                         <div className="flex items-center justify-center h-full text-gray-500">
-                            <p>{fetchingServices ? 'Loading services from provider...' : 'Please select a provider and fetch services.'}</p>
+                            <p>{fetchingServices ? 'Loading services...' : 'Select a provider and fetch services.'}</p>
                         </div>
                     )}
                 </div>
