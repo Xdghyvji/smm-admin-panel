@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, query, onSnapshot, doc, getDoc, updateDoc, orderBy, getDocs, where, addDoc, collectionGroup, writeBatch, Timestamp, deleteDoc, setDoc, limit, runTransaction } from 'firebase/firestore';
-import { Users, DollarSign, LifeBuoy, LogOut, Check, X, Eye as EyeIcon, Edit, ShoppingCart, UserPlus, Slash, BarChart, Settings, PlusCircle, Trash2, Send, Crown, CreditCard, Palette, Gift, Trophy, RefreshCw, Star, Sun, Moon, Droplets, Flame, Leaf, Zap, Mountain, Wind, Server, TrendingUp, FileText, Activity, AlertTriangle, ChevronsUpDown, Repeat, Ban, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import { Users, DollarSign, LifeBuoy, LogOut, Check, X, Eye as EyeIcon, Edit, ShoppingCart, UserPlus, Slash, BarChart, Settings, PlusCircle, Trash2, Send, Crown, CreditCard, Palette, Gift, Trophy, RefreshCw, Star, Sun, Moon, Droplets, Flame, Leaf, Zap, Mountain, Wind, Server, TrendingUp, FileText, Activity, AlertTriangle, ChevronsUpDown, Repeat, Ban, ChevronLeft, ChevronRight, Info, Search } from 'lucide-react';
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 
 // --- Firebase Configuration ---
@@ -1417,23 +1417,29 @@ function ManageServicesPage() {
     const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
-
+    const [expandedCategories, setExpandedCategories] = useState({});
+    const [services, setServices] = useState({});
 
     useEffect(() => {
         const q = query(collection(db, "categories"), orderBy("name"));
-        const unsubscribe = onSnapshot(q, async (categorySnapshot) => {
-            const cats = [];
-            for (const catDoc of categorySnapshot.docs) {
-                const servicesQuery = query(collection(db, `categories/${catDoc.id}/services`), orderBy("name"));
-                const servicesSnapshot = await getDocs(servicesQuery);
-                const services = servicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                cats.push({ id: catDoc.id, ...catDoc.data(), services });
-            }
+        const unsubscribe = onSnapshot(q, (categorySnapshot) => {
+            const cats = categorySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setCategories(cats);
             setLoading(false);
         });
         return () => unsubscribe();
     }, []);
+
+    const toggleCategory = async (categoryId) => {
+        const isExpanded = !!expandedCategories[categoryId];
+        if (!isExpanded) {
+            const servicesQuery = query(collection(db, `categories/${categoryId}/services`), orderBy("name"));
+            const servicesSnapshot = await getDocs(servicesQuery);
+            const servicesData = servicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setServices(prev => ({ ...prev, [categoryId]: servicesData }));
+        }
+        setExpandedCategories(prev => ({ ...prev, [categoryId]: !isExpanded }));
+    };
 
     const handleCategorySave = async (categoryData) => {
         if (editingCategory) {
@@ -1516,47 +1522,50 @@ function ManageServicesPage() {
             <div className="space-y-6">
                 {categories.map(cat => (
                     <div key={cat.id} className="border rounded-lg bg-white">
-                        <div className="p-4 bg-gray-50 flex justify-between items-center">
+                        <div className="p-4 bg-gray-50 flex justify-between items-center cursor-pointer" onClick={() => toggleCategory(cat.id)}>
                             <h3 className="text-lg font-bold">{cat.name}</h3>
-                            <div className="flex gap-2">
-                                <button onClick={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
-                                <button onClick={() => { setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }} className="p-2 text-gray-500 hover:text-green-600"><PlusCircle size={16} /></button>
-                                <button onClick={() => handleDeleteCategory(cat.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
+                            <div className="flex gap-2 items-center">
+                                <button onClick={(e) => { e.stopPropagation(); setEditingCategory(cat); setIsCategoryModalOpen(true); }} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }} className="p-2 text-gray-500 hover:text-green-600"><PlusCircle size={16} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
+                                <ChevronRight className={`transition-transform ${expandedCategories[cat.id] ? 'rotate-90' : ''}`} />
                             </div>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead className="text-left bg-gray-100">
-                                    <tr>
-                                        <th className="p-3">ID</th><th className="p-3">Name & Tags</th><th className="p-3">Rate</th><th className="p-3">Cost</th>
-                                        <th className="p-3">Min/Max</th><th className="p-3">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {cat.services.map(service => (
-                                        <tr key={service.id} className="border-t">
-                                            <td className="p-3 font-mono">{service.id_api}</td>
-                                            <td className="p-3 font-semibold">
-                                                {service.name}
-                                                <div className="flex flex-wrap gap-1 mt-1">
-                                                    {service.tags?.map(tag => <ServiceTag key={tag} tagName={tag} />)}
-                                                </div>
-                                            </td>
-                                            <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.rate)).toFixed(2)}</td>
-                                            <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.cost || 0)).toFixed(2)}</td>
-                                            <td className="p-3">{service.min} / {service.max}</td>
-                                            <td className="p-3">
-                                                <div className="flex gap-2">
-                                                    <button onClick={() => { setEditingCategory(cat); setEditingService(service); setIsServiceModalOpen(true); }} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
-                                                    <button onClick={() => handleDeleteService(cat.id, service.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
-                                                </div>
-                                            </td>
+                        {expandedCategories[cat.id] && (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead className="text-left bg-gray-100">
+                                        <tr>
+                                            <th className="p-3">ID</th><th className="p-3">Name & Tags</th><th className="p-3">Rate</th><th className="p-3">Cost</th>
+                                            <th className="p-3">Min/Max</th><th className="p-3">Actions</th>
                                         </tr>
-                                    ))}
-                                    {cat.services.length === 0 && (<tr><td colSpan="6" className="text-center p-4 text-gray-500">No services in this category.</td></tr>)}
-                                </tbody>
-                            </table>
-                        </div>
+                                    </thead>
+                                    <tbody>
+                                        {(services[cat.id] || []).map(service => (
+                                            <tr key={service.id} className="border-t">
+                                                <td className="p-3 font-mono">{service.id_api}</td>
+                                                <td className="p-3 font-semibold">
+                                                    {service.name}
+                                                    <div className="flex flex-wrap gap-1 mt-1">
+                                                        {service.tags?.map(tag => <ServiceTag key={tag} tagName={tag} />)}
+                                                    </div>
+                                                </td>
+                                                <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.rate)).toFixed(2)}</td>
+                                                <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.cost || 0)).toFixed(2)}</td>
+                                                <td className="p-3">{service.min} / {service.max}</td>
+                                                <td className="p-3">
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => { setEditingCategory(cat); setEditingService(service); setIsServiceModalOpen(true); }} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
+                                                        <button onClick={() => handleDeleteService(cat.id, service.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {(services[cat.id] || []).length === 0 && (<tr><td colSpan="6" className="text-center p-4 text-gray-500">No services in this category.</td></tr>)}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
@@ -1728,7 +1737,7 @@ function AllOrdersPage() {
             const servicesQuery = await getDocs(collectionGroup(db, 'services'));
             const servicesMap = new Map();
             servicesQuery.forEach(doc => {
-                 // We use the firestore doc.id as the key, which is stored as `firestoreServiceId` on the order
+               // We use the firestore doc.id as the key, which is stored as `firestoreServiceId` on the order
                 servicesMap.set(doc.id, doc.data());
             });
 
@@ -2846,6 +2855,7 @@ function ImportServiceModal({ categories, onClose }) {
     const [fetchingServices, setFetchingServices] = useState(false);
     const [importing, setImporting] = useState(false);
     const [error, setError] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
         const q = query(collection(db, "api_providers"));
@@ -2890,7 +2900,7 @@ function ImportServiceModal({ categories, onClose }) {
             return;
         }
         const newSelected = {};
-        providerServices.forEach(service => {
+        filteredServices.forEach(service => {
             // Try to match provider category with a local one
             const matchedCategory = categories.find(c => c.name.toLowerCase() === service.category.toLowerCase());
             if (matchedCategory) {
@@ -2899,6 +2909,13 @@ function ImportServiceModal({ categories, onClose }) {
         });
         setSelectedServices(newSelected);
     };
+    
+    const filteredServices = useMemo(() => {
+        return providerServices.filter(service =>
+            service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            service.category.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [providerServices, searchTerm]);
 
     const handleImport = async () => {
         const servicesToImport = Object.entries(selectedServices).filter(([, details]) => details.selected);
@@ -2948,15 +2965,25 @@ function ImportServiceModal({ categories, onClose }) {
         setImporting(false);
     };
 
+    const getSocialLogo = (categoryName) => {
+        const lowerCaseCategory = categoryName.toLowerCase();
+        if (lowerCaseCategory.includes('instagram')) return 'https://www.instagram.com/static/images/ico/favicon-192.png/68d99ba29cc8.png';
+        if (lowerCaseCategory.includes('facebook')) return 'https://www.facebook.com/images/fb_icon_325x325.png';
+        if (lowerCaseCategory.includes('youtube')) return 'https://www.youtube.com/s/desktop/064354e2/img/favicon_144.png';
+        if (lowerCaseCategory.includes('twitter')) return 'https://abs.twimg.com/responsive-web/web/icon-default.3c3b0954.png';
+        if (lowerCaseCategory.includes('tiktok')) return 'https://sf-tb-sg.ibytedtos.com/obj/eden-sg/uhtyfhoh_w/tiktok-icon2.png';
+        return null;
+    };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl h-[90vh] flex flex-col">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex flex-col">
                 <div className="p-4 border-b flex justify-between items-center">
                     <h3 className="text-lg font-bold">Import Services from API Provider</h3>
                     <button onClick={onClose}><X /></button>
                 </div>
                 <div className="p-6 flex-shrink-0 border-b">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                         <div>
                             <label className="block text-sm font-medium mb-1">Select Provider</label>
                             <select value={selectedProvider} onChange={e => setSelectedProvider(e.target.value)} className="w-full p-2 border rounded" disabled={loadingProviders}>
@@ -2964,38 +2991,63 @@ function ImportServiceModal({ categories, onClose }) {
                                 {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
                         </div>
+                         <div className="md:col-span-2">
+                            <label className="block text-sm font-medium mb-1">Search Services</label>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                <input
+                                    type="text"
+                                    placeholder="Search by name or category..."
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    className="w-full p-2 pl-10 border rounded"
+                                    disabled={!providerServices.length}
+                                />
+                            </div>
+                        </div>
                         <button onClick={handleFetchServices} disabled={!selectedProvider || fetchingServices} className="bg-blue-600 text-white px-4 py-2 rounded disabled:bg-gray-400">
                             {fetchingServices ? 'Fetching...' : 'Fetch Services'}
                         </button>
-                        <div className="md:col-span-2">
-                             {error && <p className="text-red-500 text-sm">{error}</p>}
+                        <div className="md:col-span-1">
+                               {error && <p className="text-red-500 text-sm">{error}</p>}
                         </div>
                     </div>
                 </div>
-                <div className="flex-grow overflow-y-auto">
+                <div className="flex-grow overflow-auto">
                     {providerServices.length > 0 ? (
                         <table className="w-full text-sm">
-                            <thead className="sticky top-0 bg-gray-100">
+                            <thead className="sticky top-0 bg-gray-100 z-10">
                                 <tr>
                                     <th className="p-3 w-10"><input type="checkbox" onChange={e => handleSelectAll(e.target.checked)} /></th>
                                     <th className="p-3 text-left">Provider Service</th>
                                     <th className="p-3 text-left">Provider Category</th>
                                     <th className="p-3 text-right">Cost</th>
+                                    <th className="p-3 text-right">Profit</th>
                                     <th className="p-3 text-left">Assign to Local Category</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {providerServices.map(service => (
-                                    <tr key={service.service} className="border-b">
+                                {filteredServices.map(service => {
+                                    const cost = parseFloat(service.rate);
+                                    const profit = cost * (rateIncrease / 100);
+                                    const logo = getSocialLogo(service.category);
+                                    return (
+                                    <tr key={service.service} className="border-b hover:bg-gray-50">
                                         <td className="p-3 text-center">
                                             <input type="checkbox" checked={!!selectedServices[service.service]?.selected} onChange={e => handleServiceSelection(service.service, e.target.checked ? selectedServices[service.service]?.categoryId : null)} />
                                         </td>
                                         <td className="p-3">
-                                            <p className="font-semibold">{service.name}</p>
-                                            <p className="text-xs text-gray-500">ID: {service.service}</p>
+                                            <div className="flex items-center gap-3">
+                                                {logo && <img src={logo} alt={service.category} className="w-6 h-6 object-contain" />}
+                                                <div>
+                                                    <p className="font-semibold">{service.name}</p>
+                                                    <p className="text-xs text-gray-500">ID: {service.service}</p>
+                                                </div>
+                                            </div>
                                         </td>
                                         <td className="p-3">{service.category}</td>
-                                        <td className="p-3 text-right">{CURRENCY_SYMBOL}{service.rate}</td>
+                                        <td className="p-3 text-right font-mono">{CURRENCY_SYMBOL}{cost.toFixed(4)}</td>
+                                        <td className="p-3 text-right font-mono text-green-600">{CURRENCY_SYMBOL}{profit.toFixed(4)}</td>
                                         <td className="p-3">
                                             <select
                                                 value={selectedServices[service.service]?.categoryId || ''}
@@ -3007,7 +3059,7 @@ function ImportServiceModal({ categories, onClose }) {
                                             </select>
                                         </td>
                                     </tr>
-                                ))}
+                                )})}
                             </tbody>
                         </table>
                     ) : (
