@@ -1400,27 +1400,6 @@ function ManageServicesPage() {
         return () => unsubscribe();
     }, []);
 
-    const onDragEnd = async (result) => {
-        const { destination, source } = result;
-        if (!destination || (destination.droppableId === source.droppableId && destination.index === source.index)) {
-            return;
-        }
-    
-        const newCategories = Array.from(categories);
-        const [reorderedItem] = newCategories.splice(source.index, 1);
-        newCategories.splice(destination.index, 0, reorderedItem);
-    
-        setCategories(newCategories);
-    
-        const batch = writeBatch(db);
-        newCategories.forEach((cat, index) => {
-            const catRef = doc(db, "categories", cat.id);
-            batch.update(catRef, { order: index });
-        });
-        await batch.commit();
-        await logAdminAction("CATEGORIES_REORDERED", {});
-    };
-
     const handleCategorySave = async (categoryData) => {
         if (editingCategory) {
             const categoryRef = doc(db, "categories", editingCategory.id);
@@ -1464,29 +1443,17 @@ function ManageServicesPage() {
                     <button onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"><PlusCircle size={18} />Add Category</button>
                 </div>
             </div>
-            <DragDropContext onDragEnd={onDragEnd}>
-                <Droppable droppableId="categories">
-                    {(provided) => (
-                        <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-4">
-                            {categories.map((cat, index) => (
-                                <Draggable key={cat.id} draggableId={cat.id} index={index}>
-                                    {(provided) => (
-                                        <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
-                                            <CategoryItem 
-                                                category={cat} 
-                                                onEdit={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }}
-                                                onAddService={() => { setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }}
-                                                onDelete={() => handleDeleteCategory(cat.id)}
-                                            />
-                                        </div>
-                                    )}
-                                </Draggable>
-                            ))}
-                            {provided.placeholder}
-                        </div>
-                    )}
-                </Droppable>
-            </DragDropContext>
+            <div className="space-y-4">
+                {categories.map((cat) => (
+                    <CategoryItem 
+                        key={cat.id}
+                        category={cat} 
+                        onEdit={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }}
+                        onAddService={() => { setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }}
+                        onDelete={() => handleDeleteCategory(cat.id)}
+                    />
+                ))}
+            </div>
 
             {isCategoryModalOpen && <CategoryModal category={editingCategory} onSave={handleCategorySave} onClose={() => setIsCategoryModalOpen(false)} />}
             {isServiceModalOpen && <ServiceModal category={editingCategory} service={editingService} onClose={() => setIsServiceModalOpen(false)} />}
