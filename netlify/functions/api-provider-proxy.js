@@ -15,7 +15,7 @@ if (!admin.apps.length) {
 }
 
 const ADMIN_EMAIL = "admin@paksmm.com";
-const FALLBACK_USD_TO_PKR_RATE = 287.00; // A safe fallback rate
+const FALLBACK_USD_TO_PKR_RATE = 283.75; // A safe fallback rate
 
 // --- NEW: Provider Fee Buffer ---
 // Adjust this percentage to match the provider's final price.
