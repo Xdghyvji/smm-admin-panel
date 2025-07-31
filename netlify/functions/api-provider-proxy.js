@@ -17,20 +17,24 @@ if (!admin.apps.length) {
 const ADMIN_EMAIL = "admin@paksmm.com";
 const FALLBACK_USD_TO_PKR_RATE = 287.00; // A safe fallback rate
 
+// --- NEW: Provider Fee Buffer ---
+// Adjust this percentage to match the provider's final price.
+// This accounts for any commissions or fees they add on top of the base API rate.
+// Example: 3.0 means we add 3% to the final converted price.
+const PROVIDER_FEE_BUFFER_PERCENTAGE = 3.0;
+
 /**
  * Fetches the live USD to PKR exchange rate from a free API.
  * @returns {Promise<number>} The current exchange rate or a fallback value.
  */
 const getLiveExchangeRate = async () => {
   try {
-    // Using a free, no-key-required API for exchange rates
     const response = await axios.get('https://open.er-api.com/v6/latest/USD');
     if (response.data && response.data.rates && response.data.rates.PKR) {
-      console.log(`Live exchange rate fetched: 1 USD = ${response.data.rates.PKR} PKR`);
-      // Add a small buffer to the live rate to account for fees/fluctuations
-      return parseFloat(response.data.rates.PKR) + 1.0; 
+      const liveRate = parseFloat(response.data.rates.PKR);
+      console.log(`Live exchange rate fetched: 1 USD = ${liveRate} PKR`);
+      return liveRate;
     }
-    // If the response structure is unexpected, throw an error to use the fallback
     throw new Error("Invalid API response structure from currency API.");
   } catch (error) {
     console.error(`Failed to fetch live exchange rate: ${error.message}. Using fallback rate.`);
@@ -39,7 +43,7 @@ const getLiveExchangeRate = async () => {
 };
 
 exports.handler = async (event) => {
-  // --- Security Check: Ensure the request is from the authenticated admin ---
+  // --- Security Check ---
   const { authorization } = event.headers;
   if (!authorization || !authorization.startsWith('Bearer ')) {
     return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized: No token provided.' }) };
@@ -60,7 +64,6 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
-  // Fetch the live exchange rate at the beginning of each request
   const liveUsdToPkrRate = await getLiveExchangeRate();
 
   try {
@@ -91,12 +94,16 @@ exports.handler = async (event) => {
 
     let responseData = response.data;
 
-    // --- REAL-TIME CURRENCY CONVERSION LOGIC ---
+    // --- REAL-TIME CURRENCY CONVERSION & BUFFER LOGIC ---
+    const feeMultiplier = 1 + (PROVIDER_FEE_BUFFER_PERCENTAGE / 100);
+
     if (action === 'services' && Array.isArray(responseData)) {
         responseData = responseData.map(service => {
             if (service.rate) {
                 const originalRate = parseFloat(service.rate);
-                service.rate = (originalRate * liveUsdToPkrRate).toFixed(4);
+                const convertedRate = originalRate * liveUsdToPkrRate;
+                const finalRate = convertedRate * feeMultiplier; // Apply buffer
+                service.rate = finalRate.toFixed(4);
             }
             return service;
         });
@@ -104,7 +111,9 @@ exports.handler = async (event) => {
 
     if (action === 'balance' && responseData.balance) {
         const originalBalance = parseFloat(responseData.balance);
-        responseData.balance = (originalBalance * liveUsdToPkrRate).toFixed(2);
+        const convertedBalance = originalBalance * liveUsdToPkrRate;
+        const finalBalance = convertedBalance * feeMultiplier; // Apply buffer
+        responseData.balance = finalBalance.toFixed(2);
         responseData.currency = 'PKR';
     }
 
