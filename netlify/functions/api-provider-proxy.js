@@ -4,7 +4,6 @@ const axios = require('axios');
 const admin = require('firebase-admin');
 
 // --- Firebase Admin Initialization ---
-// Ensure you have set these environment variables in your Netlify project settings.
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -16,9 +15,28 @@ if (!admin.apps.length) {
 }
 
 const ADMIN_EMAIL = "admin@paksmm.com";
-// --- IMPORTANT: Set your USD to PKR exchange rate here ---
-// This should be updated periodically. For a production app, consider using a live currency API.
-const USD_TO_PKR_RATE = 280.50; 
+const FALLBACK_USD_TO_PKR_RATE = 287.00; // A safe fallback rate
+
+/**
+ * Fetches the live USD to PKR exchange rate from a free API.
+ * @returns {Promise<number>} The current exchange rate or a fallback value.
+ */
+const getLiveExchangeRate = async () => {
+  try {
+    // Using a free, no-key-required API for exchange rates
+    const response = await axios.get('https://open.er-api.com/v6/latest/USD');
+    if (response.data && response.data.rates && response.data.rates.PKR) {
+      console.log(`Live exchange rate fetched: 1 USD = ${response.data.rates.PKR} PKR`);
+      // Add a small buffer to the live rate to account for fees/fluctuations
+      return parseFloat(response.data.rates.PKR) + 1.0; 
+    }
+    // If the response structure is unexpected, throw an error to use the fallback
+    throw new Error("Invalid API response structure from currency API.");
+  } catch (error) {
+    console.error(`Failed to fetch live exchange rate: ${error.message}. Using fallback rate.`);
+    return FALLBACK_USD_TO_PKR_RATE;
+  }
+};
 
 exports.handler = async (event) => {
   // --- Security Check: Ensure the request is from the authenticated admin ---
@@ -42,6 +60,9 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
+  // Fetch the live exchange rate at the beginning of each request
+  const liveUsdToPkrRate = await getLiveExchangeRate();
+
   try {
     const { apiUrl, apiKey, action, params } = JSON.parse(event.body);
 
@@ -61,7 +82,6 @@ exports.handler = async (event) => {
     
     console.log(`Proxying request to: ${apiUrl} with action: ${action}`);
 
-    // Make the external API call using axios
     const response = await axios.post(apiUrl, requestBody, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -71,24 +91,21 @@ exports.handler = async (event) => {
 
     let responseData = response.data;
 
-    // --- NEW: CURRENCY CONVERSION LOGIC ---
-    // If the action is 'services', convert the rate for each service.
+    // --- REAL-TIME CURRENCY CONVERSION LOGIC ---
     if (action === 'services' && Array.isArray(responseData)) {
         responseData = responseData.map(service => {
             if (service.rate) {
                 const originalRate = parseFloat(service.rate);
-                // Convert from USD to PKR and format to 4 decimal places
-                service.rate = (originalRate * USD_TO_PKR_RATE).toFixed(4);
+                service.rate = (originalRate * liveUsdToPkrRate).toFixed(4);
             }
             return service;
         });
     }
 
-    // If the action is 'balance', convert the balance field.
-    if (action === 'balance' && responseData.balance && responseData.currency === 'USD') {
+    if (action === 'balance' && responseData.balance) {
         const originalBalance = parseFloat(responseData.balance);
-        responseData.balance = (originalBalance * USD_TO_PKR_RATE).toFixed(2);
-        responseData.currency = 'PKR'; // Update currency symbol
+        responseData.balance = (originalBalance * liveUsdToPkrRate).toFixed(2);
+        responseData.currency = 'PKR';
     }
 
     return {
@@ -103,8 +120,8 @@ exports.handler = async (event) => {
     return {
       statusCode: 500,
       body: JSON.stringify({ 
-        error: 'Failed to fetch from API provider. The provider may be blocking our server.', 
-        details: 'Cloudflare security challenge was triggered or another error occurred.'
+        error: 'Failed to fetch from API provider.', 
+        details: 'The provider may be blocking our server or an internal error occurred.'
       }),
     };
   }
