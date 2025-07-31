@@ -4,6 +4,7 @@ const axios = require('axios');
 const admin = require('firebase-admin');
 
 // --- Firebase Admin Initialization ---
+// Ensure you have set these environment variables in your Netlify project settings.
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -15,6 +16,9 @@ if (!admin.apps.length) {
 }
 
 const ADMIN_EMAIL = "admin@paksmm.com";
+// --- IMPORTANT: Set your USD to PKR exchange rate here ---
+// This should be updated periodically. For a production app, consider using a live currency API.
+const USD_TO_PKR_RATE = 280.50; 
 
 exports.handler = async (event) => {
   // --- Security Check: Ensure the request is from the authenticated admin ---
@@ -61,18 +65,38 @@ exports.handler = async (event) => {
     const response = await axios.post(apiUrl, requestBody, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        // ** FIX: Add a standard User-Agent header to bypass Cloudflare bot detection **
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
       }
     });
 
+    let responseData = response.data;
+
+    // --- NEW: CURRENCY CONVERSION LOGIC ---
+    // If the action is 'services', convert the rate for each service.
+    if (action === 'services' && Array.isArray(responseData)) {
+        responseData = responseData.map(service => {
+            if (service.rate) {
+                const originalRate = parseFloat(service.rate);
+                // Convert from USD to PKR and format to 4 decimal places
+                service.rate = (originalRate * USD_TO_PKR_RATE).toFixed(4);
+            }
+            return service;
+        });
+    }
+
+    // If the action is 'balance', convert the balance field.
+    if (action === 'balance' && responseData.balance && responseData.currency === 'USD') {
+        const originalBalance = parseFloat(responseData.balance);
+        responseData.balance = (originalBalance * USD_TO_PKR_RATE).toFixed(2);
+        responseData.currency = 'PKR'; // Update currency symbol
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify(response.data),
+      body: JSON.stringify(responseData),
     };
 
   } catch (error) {
-    // Log the actual response if it's a Cloudflare block page
     const errorDetails = error.response ? error.response.data : error.message;
     console.error('API Provider Proxy Error:', errorDetails);
     
@@ -80,7 +104,7 @@ exports.handler = async (event) => {
       statusCode: 500,
       body: JSON.stringify({ 
         error: 'Failed to fetch from API provider. The provider may be blocking our server.', 
-        details: 'Cloudflare security challenge was triggered.'
+        details: 'Cloudflare security challenge was triggered or another error occurred.'
       }),
     };
   }
