@@ -33,33 +33,26 @@ const COMMISSION_RATE = 0.05; // 5%
 const callProviderApi = async (provider, action, params = {}) => {
     console.log(`[callProviderApi] Calling proxy for provider: ${provider.name}, action: ${action}`);
     
-    // 1. Get the Firebase Auth token for the currently logged-in admin.
-    // This token proves to our backend function that the request is from an authenticated admin.
     const user = auth.currentUser;
     if (!user) {
         throw new Error("Authentication error: Admin user not found.");
     }
     const idToken = await user.getIdToken();
 
-    // 2. The URL for our Netlify function.
     const proxyUrl = '/.netlify/functions/api-provider-proxy';
 
     try {
-        // 3. Make the fetch request to OUR backend proxy, not the external API.
         const response = await fetch(proxyUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                // 4. Include the auth token in the Authorization header.
                 'Authorization': `Bearer ${idToken}`,
             },
-            // 5. Send all necessary provider info in the request body.
-            // Our proxy will use this to make the actual API call securely.
             body: JSON.stringify({
                 apiUrl: provider.apiUrl,
                 apiKey: provider.apiKey,
                 action: action,
-                params: params, // Additional params for specific actions like 'add' or 'status'
+                params: params,
             }),
         });
 
@@ -71,7 +64,7 @@ const callProviderApi = async (provider, action, params = {}) => {
         return await response.json();
     } catch (error) {
         console.error("[callProviderApi] Error:", error);
-        throw error; // Re-throw the error to be caught by the calling component
+        throw error;
     }
 };
 
@@ -138,7 +131,6 @@ function App() {
     const [notificationCounts, setNotificationCounts] = useState({ funds: 0, tickets: 0, withdrawals: 0, orders: 0 });
     const [isAuthReady, setIsAuthReady] = useState(false);
 
-    // Effect for handling authentication
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
             if (user && user.email === ADMIN_EMAIL) {
@@ -147,15 +139,14 @@ function App() {
                 setAdmin(null);
             }
             setLoading(false);
-            setIsAuthReady(true); // Signal that auth check is complete
+            setIsAuthReady(true);
         });
 
         return () => unsubscribeAuth();
     }, []);
 
-    // Effect for fetching data, runs only after auth is ready
     useEffect(() => {
-        if (!isAuthReady || !admin) return; // Don't run if not authenticated as admin
+        if (!isAuthReady || !admin) return;
 
         const settingsRef = doc(db, "settings", "theme");
         const unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
@@ -169,7 +160,6 @@ function App() {
             }
         }, (error) => console.error("Settings listener error:", error));
         
-        // Notification Listeners
         const qFunds = query(collectionGroup(db, 'fund_requests'), where('status', '==', 'pending'));
         const unsubscribeFunds = onSnapshot(qFunds, (snapshot) => {
             setNotificationCounts(prev => ({ ...prev, funds: snapshot.size }));
@@ -378,7 +368,6 @@ function AdminDashboard() {
             setLoading(true);
             setError(null);
             try {
-                // Fetch data individually to isolate errors
                 let users = [], orders = [], services = [], ticketsSnapshot;
 
                 try {
@@ -406,11 +395,8 @@ function AdminDashboard() {
                     ticketsSnapshot = await getDocs(query(collection(db, 'tickets'), where('status', '==', 'Open')));
                 } catch(e) { console.error("Failed to fetch tickets:", e); }
 
-
-                // --- Process Data ---
                 const servicesMap = new Map(services.map(s => [String(s.id_api), s]));
                 
-                // --- Calculate Signups by Date ---
                 const signupsByDate = users.reduce((acc, user) => {
                     if (user.createdAt && user.createdAt.toDate) {
                         const date = user.createdAt.toDate().toISOString().split('T')[0];
@@ -424,7 +410,6 @@ function AdminDashboard() {
                     .slice(-30)
                     .map(date => ({ date, count: signupsByDate[date] }));
 
-                // --- Calculate Daily Profit ---
                 const profitByDate = {};
                 const thirtyDaysAgo = new Date();
                 thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -447,7 +432,6 @@ function AdminDashboard() {
                     .sort((a, b) => new Date(a) - new Date(b))
                     .map(date => ({ date, profit: parseFloat(profitByDate[date].toFixed(2)) }));
 
-                // --- Calculate Total Stats ---
                 const totalSpent = orders.reduce((sum, order) => sum + (order.status === 'Completed' ? order.charge || 0 : 0), 0);
                 const totalCost = orders.reduce((sum, order) => {
                     if (order.status === 'Completed') {
@@ -457,7 +441,6 @@ function AdminDashboard() {
                     return sum;
                 }, 0);
 
-                // --- Recent Activity ---
                 const latestUsers = users
                     .filter(u => u.createdAt && u.createdAt.toDate)
                     .sort((a, b) => b.createdAt.toDate() - a.createdAt.toDate())
@@ -569,7 +552,6 @@ function UserManagementPage() {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            // Calculate referral counts client-side for efficiency
             const referralCounts = usersData.reduce((acc, user) => {
                 if (user.referredBy) {
                     acc[user.referredBy] = (acc[user.referredBy] || 0) + 1;
@@ -851,12 +833,11 @@ function FundRequestsPage() {
                     const requestData = docSnap.data();
                     const userId = docSnap.ref.parent.parent.id;
                     let userEmail = 'N/A';
-                    let userPhotoURL = `https://placehold.co/40x40/e2e8f0/64748b?text=U`; // Default placeholder
+                    let userPhotoURL = `https://placehold.co/40x40/e2e8f0/64748b?text=U`;
 
-                    // Ensure requestData.date is a valid Timestamp before trying to convert
                     const requestDate = requestData.date && typeof requestData.date.toDate === 'function' 
                                         ? requestData.date.toDate() 
-                                        : null; // Set to null if not a valid Timestamp
+                                        : null;
 
                     try {
                         if (userId) {
@@ -869,7 +850,7 @@ function FundRequestsPage() {
                             } else {
                                 console.warn(`[FundRequestsPage] User document not found for userId: ${userId} (request ID: ${docSnap.id}).`);
                                 userEmail = `User Not Found (${userId.substring(0, 5)}...)`;
-                                userPhotoURL = `https://placehold.co/40x40/e2e8f0/64748b?text=NF`; // Not Found
+                                userPhotoURL = `https://placehold.co/40x40/e2e8f0/64748b?text=NF`;
                             }
                         } else {
                             console.warn(`[FundRequestsPage] Fund request ${docSnap.id} has no associated userId.`);
@@ -887,12 +868,11 @@ function FundRequestsPage() {
                         userId,
                         userEmail,
                         userPhotoURL,
-                        date: requestDate, // Use the safely converted date
+                        date: requestDate,
                         ...requestData
                     };
                 }));
 
-                // Safely sort by date, now that date is guaranteed to be a Date object or null
                 allRequests.sort((a, b) => {
                     const dateA = a.date ? a.date.getTime() : 0;
                     const dateB = b.date ? b.date.getTime() : 0;
@@ -928,27 +908,24 @@ function FundRequestsPage() {
                 const userData = userSnap.data();
                 const amountToAdd = parseFloat(request.amount);
                 
-                // 1. Update user's balance if approved
                 if (newStatus === 'completed') {
                     const currentBalance = userData.balance || 0;
                     transaction.update(userRef, { balance: currentBalance + amountToAdd });
 
-                    // 2. Add a record to the user's transactions subcollection
                     const userTransactionsCollectionRef = collection(db, `users/${request.userId}/transactions`);
-                    const transactionDocRef = doc(userTransactionsCollectionRef); // Let Firestore generate ID
+                    const transactionDocRef = doc(userTransactionsCollectionRef);
                     transaction.set(transactionDocRef, {
                         type: 'manual_deposit',
                         amount: amountToAdd,
                         currency: CURRENCY_SYMBOL,
                         status: 'completed',
-                        gateway: request.method, // Store the manual payment method
-                        gatewayTransactionId: request.trxId || 'N/A', // Store the TRX ID
-                        userEmail: userData.email, // Store user email for easier lookup
+                        gateway: request.method,
+                        gatewayTransactionId: request.trxId || 'N/A',
+                        userEmail: userData.email,
                         createdAt: Timestamp.now(),
-                        fundRequestId: request.id, // Link to the original fund request
+                        fundRequestId: request.id,
                     });
 
-                    // 3. Handle referral commission if applicable
                     if (userData.referredBy) {
                         const referrerRef = doc(db, "users", userData.referredBy);
                         const commissionAmount = amountToAdd * COMMISSION_RATE;
@@ -970,12 +947,8 @@ function FundRequestsPage() {
                             });
                         }
                     }
-                } else if (newStatus === 'rejected') {
-                    // If rejected, no balance update or transaction log needed, but log the action
-                    // No need to revert commission if it was never applied
                 }
                 
-                // 4. Update the fund request status
                 transaction.update(requestRef, { status: newStatus });
             });
             
@@ -1006,7 +979,7 @@ function FundRequestsPage() {
                     <thead className="text-left bg-gray-100">
                         <tr>
                             <th className="p-3">Date</th>
-                            <th className="p-3">User</th> {/* Combined User Email and Profile */}
+                            <th className="p-3">User</th>
                             <th className="p-3">Method</th>
                             <th className="p-3">Amount</th>
                             <th className="p-3">TRX ID</th>
@@ -1048,14 +1021,14 @@ function FundRequestsPage() {
     );
 }
 
-// --- NEW: Automatic Transactions Page ---
+// --- Automatic Transactions Page ---
 function AutomaticTransactionsPage() {
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState('All'); // New state for status filter
-    const [viewingUserPaymentMethods, setViewingUserPaymentMethods] = useState(null); // State for modal
+    const [statusFilter, setStatusFilter] = useState('All');
+    const [viewingUserPaymentMethods, setViewingUserPaymentMethods] = useState(null);
 
 
     useEffect(() => {
@@ -1068,12 +1041,11 @@ function AutomaticTransactionsPage() {
                 const transactionsData = await Promise.all(snapshot.docs.map(async (docSnap) => {
                     const data = docSnap.data();
                     const userId = docSnap.ref.parent.parent.id;
-                    let userEmail = data.userEmail || 'N/A'; // Use email if stored
-                    let userPhotoURL = `https://placehold.co/40x40/e2e8f0/64748b?text=U`; // Default placeholder
+                    let userEmail = data.userEmail || 'N/A';
+                    let userPhotoURL = `https://placehold.co/40x40/e2e8f0/64748b?text=U`;
 
-                    // If email/photo is not on the transaction, fetch it from the user doc
                     try {
-                        if (userId) { // Ensure userId exists before attempting to fetch user data
+                        if (userId) {
                             const userRef = doc(db, 'users', userId);
                             const userSnap = await getDoc(userRef);
                             if (userSnap.exists()) {
@@ -1122,7 +1094,7 @@ function AutomaticTransactionsPage() {
     }, []);
 
     const filteredTransactions = transactions
-        .filter(tx => statusFilter === 'All' || tx.status === statusFilter.toLowerCase()) // Apply status filter
+        .filter(tx => statusFilter === 'All' || tx.status === statusFilter.toLowerCase())
         .filter(tx =>
             (tx.userEmail || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (tx.gateway || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1180,7 +1152,7 @@ function AutomaticTransactionsPage() {
                                         <p className="text-xs">{tx.userEmail}</p>
                                     </div>
                                 </td>
-                                <td className="p-3 capitalize">{tx.type?.replace('_', ' ') || 'N/A'}</td> {/* Display transaction type */}
+                                <td className="p-3 capitalize">{tx.type?.replace('_', ' ') || 'N/A'}</td>
                                 <td className="p-3">{CURRENCY_SYMBOL} {(tx.amount || 0).toFixed(2)}</td>
                                 <td className="p-3">{tx.gateway || 'N/A'}</td>
                                 <td className="p-3 font-mono text-xs">{tx.gatewayTransactionId || 'N/A'}</td>
@@ -1213,13 +1185,13 @@ function AutomaticTransactionsPage() {
     );
 }
 
-// --- NEW: User Auto Payment Methods Modal ---
+// --- User Auto Payment Methods Modal ---
 function UserAutoPaymentMethodsModal({ userId, userEmail, onClose }) {
     const [paymentMethods, setPaymentMethods] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [editingMethod, setEditingMethod] = useState(null); // For editing existing methods
-    const [isAddMethodModalOpen, setIsAddMethodModalOpen] = useState(false); // For adding new methods
+    const [editingMethod, setEditingMethod] = useState(null);
+    const [isAddMethodModalOpen, setIsAddMethodModalOpen] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
 
 
@@ -1352,12 +1324,12 @@ function UserAutoPaymentMethodsModal({ userId, userEmail, onClose }) {
     );
 }
 
-// --- NEW: User Payment Method Form Modal (for Add/Edit) ---
+// --- User Payment Method Form Modal (for Add/Edit) ---
 function UserPaymentMethodFormModal({ method, onSave, onClose }) {
     const [formData, setFormData] = useState({
         name: method ? method.name : '',
-        details: method ? method.details : '', // e.g., account number, wallet address
-        type: method ? method.type : 'bank', // e.g., 'bank', 'crypto', 'easypaisa'
+        details: method ? method.details : '',
+        type: method ? method.type : 'bank',
     });
 
     const handleChange = (e) => {
@@ -1417,11 +1389,9 @@ function ManageServicesPage() {
     const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
-    const [expandedCategories, setExpandedCategories] = useState({});
-    const [services, setServices] = useState({});
 
     useEffect(() => {
-        const q = query(collection(db, "categories"), orderBy("name"));
+        const q = query(collection(db, "categories"), orderBy("order", "asc"));
         const unsubscribe = onSnapshot(q, (categorySnapshot) => {
             const cats = categorySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setCategories(cats);
@@ -1430,15 +1400,25 @@ function ManageServicesPage() {
         return () => unsubscribe();
     }, []);
 
-    const toggleCategory = async (categoryId) => {
-        const isExpanded = !!expandedCategories[categoryId];
-        if (!isExpanded) {
-            const servicesQuery = query(collection(db, `categories/${categoryId}/services`), orderBy("name"));
-            const servicesSnapshot = await getDocs(servicesQuery);
-            const servicesData = servicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setServices(prev => ({ ...prev, [categoryId]: servicesData }));
+    const onDragEnd = async (result) => {
+        const { destination, source } = result;
+        if (!destination || (destination.droppableId === source.droppableId && destination.index === source.index)) {
+            return;
         }
-        setExpandedCategories(prev => ({ ...prev, [categoryId]: !isExpanded }));
+    
+        const newCategories = Array.from(categories);
+        const [reorderedItem] = newCategories.splice(source.index, 1);
+        newCategories.splice(destination.index, 0, reorderedItem);
+    
+        setCategories(newCategories);
+    
+        const batch = writeBatch(db);
+        newCategories.forEach((cat, index) => {
+            const catRef = doc(db, "categories", cat.id);
+            batch.update(catRef, { order: index });
+        });
+        await batch.commit();
+        await logAdminAction("CATEGORIES_REORDERED", {});
     };
 
     const handleCategorySave = async (categoryData) => {
@@ -1447,34 +1427,12 @@ function ManageServicesPage() {
             await updateDoc(categoryRef, { name: categoryData.name });
             await logAdminAction("CATEGORY_UPDATE", { categoryId: editingCategory.id, name: categoryData.name });
         } else {
-            const docRef = await addDoc(collection(db, "categories"), { name: categoryData.name });
+            const newOrder = categories.length;
+            const docRef = await addDoc(collection(db, "categories"), { name: categoryData.name, order: newOrder });
             await logAdminAction("CATEGORY_CREATE", { categoryId: docRef.id, name: categoryData.name });
         }
         setEditingCategory(null);
         setIsCategoryModalOpen(false);
-    };
-
-    const handleServiceSave = async (serviceData) => {
-        const dataToSave = {
-            ...serviceData,
-            rate: parseFloat(serviceData.rate) || 0,
-            cost: parseFloat(serviceData.cost) || 0,
-            min: parseInt(serviceData.min, 10) || 0,
-            max: parseInt(serviceData.max, 10) || 0,
-            // NEW: Parse comma-separated tags into an array
-            tags: serviceData.tags ? serviceData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
-        };
-
-        if (editingService && editingCategory) {
-            const serviceRef = doc(db, `categories/${editingCategory.id}/services`, editingService.id);
-            await updateDoc(serviceRef, dataToSave);
-            await logAdminAction("SERVICE_UPDATE", { serviceId: editingService.id, ...dataToSave });
-        } else if (editingCategory) {
-            const docRef = await addDoc(collection(db, `categories/${editingCategory.id}/services`), dataToSave);
-            await logAdminAction("SERVICE_CREATE", { serviceId: docRef.id, categoryId: editingCategory.id, ...dataToSave });
-        }
-        setEditingService(null);
-        setIsServiceModalOpen(false);
     };
 
     const handleDeleteCategory = async (categoryId) => {
@@ -1494,18 +1452,6 @@ function ManageServicesPage() {
         });
     };
 
-    const handleDeleteService = async (categoryId, serviceId) => {
-        setConfirmAction({
-            message: "Are you sure you want to delete this service?",
-            onConfirm: async () => {
-                await deleteDoc(doc(db, `categories/${categoryId}/services`, serviceId));
-                await logAdminAction("SERVICE_DELETE", { serviceId });
-                setConfirmAction(null);
-            }
-        });
-    };
-
-
     if (loading) return <p>Loading services...</p>;
 
     return (
@@ -1518,64 +1464,110 @@ function ManageServicesPage() {
                     <button onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"><PlusCircle size={18} />Add Category</button>
                 </div>
             </div>
-
-            <div className="space-y-6">
-                {categories.map(cat => (
-                    <div key={cat.id} className="border rounded-lg bg-white">
-                        <div className="p-4 bg-gray-50 flex justify-between items-center cursor-pointer" onClick={() => toggleCategory(cat.id)}>
-                            <h3 className="text-lg font-bold">{cat.name}</h3>
-                            <div className="flex gap-2 items-center">
-                                <button onClick={(e) => { e.stopPropagation(); setEditingCategory(cat); setIsCategoryModalOpen(true); }} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }} className="p-2 text-gray-500 hover:text-green-600"><PlusCircle size={16} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
-                                <ChevronRight className={`transition-transform ${expandedCategories[cat.id] ? 'rotate-90' : ''}`} />
-                            </div>
+            <DragDropContext onDragEnd={onDragEnd}>
+                <Droppable droppableId="categories">
+                    {(provided) => (
+                        <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-4">
+                            {categories.map((cat, index) => (
+                                <Draggable key={cat.id} draggableId={cat.id} index={index}>
+                                    {(provided) => (
+                                        <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}>
+                                            <CategoryItem 
+                                                category={cat} 
+                                                onEdit={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }}
+                                                onAddService={() => { setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }}
+                                                onDelete={() => handleDeleteCategory(cat.id)}
+                                            />
+                                        </div>
+                                    )}
+                                </Draggable>
+                            ))}
+                            {provided.placeholder}
                         </div>
-                        {expandedCategories[cat.id] && (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead className="text-left bg-gray-100">
-                                        <tr>
-                                            <th className="p-3">ID</th><th className="p-3">Name & Tags</th><th className="p-3">Rate</th><th className="p-3">Cost</th>
-                                            <th className="p-3">Min/Max</th><th className="p-3">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {(services[cat.id] || []).map(service => (
-                                            <tr key={service.id} className="border-t">
-                                                <td className="p-3 font-mono">{service.id_api}</td>
-                                                <td className="p-3 font-semibold">
-                                                    {service.name}
-                                                    <div className="flex flex-wrap gap-1 mt-1">
-                                                        {service.tags?.map(tag => <ServiceTag key={tag} tagName={tag} />)}
-                                                    </div>
-                                                </td>
-                                                <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.rate)).toFixed(2)}</td>
-                                                <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.cost || 0)).toFixed(2)}</td>
-                                                <td className="p-3">{service.min} / {service.max}</td>
-                                                <td className="p-3">
-                                                    <div className="flex gap-2">
-                                                        <button onClick={() => { setEditingCategory(cat); setEditingService(service); setIsServiceModalOpen(true); }} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
-                                                        <button onClick={() => handleDeleteService(cat.id, service.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {(services[cat.id] || []).length === 0 && (<tr><td colSpan="6" className="text-center p-4 text-gray-500">No services in this category.</td></tr>)}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-                ))}
-            </div>
+                    )}
+                </Droppable>
+            </DragDropContext>
 
             {isCategoryModalOpen && <CategoryModal category={editingCategory} onSave={handleCategorySave} onClose={() => setIsCategoryModalOpen(false)} />}
-            {isServiceModalOpen && <ServiceModal category={editingCategory} service={editingService} onSave={handleServiceSave} onClose={() => setIsServiceModalOpen(false)} />}
+            {isServiceModalOpen && <ServiceModal category={editingCategory} service={editingService} onClose={() => setIsServiceModalOpen(false)} />}
             {isImportModalOpen && <ImportServiceModal categories={categories} onClose={() => setIsImportModalOpen(false)} />}
         </div>
     );
 }
+
+const CategoryItem = ({ category, onEdit, onAddService, onDelete }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [services, setServices] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+
+    const toggleExpansion = async () => {
+        if (!isExpanded && services.length === 0) {
+            setIsLoading(true);
+            const servicesQuery = query(collection(db, `categories/${category.id}/services`), orderBy("name"));
+            const servicesSnapshot = await getDocs(servicesQuery);
+            setServices(servicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setIsLoading(false);
+        }
+        setIsExpanded(!isExpanded);
+    };
+
+    const handleDeleteService = async (serviceId) => {
+        await deleteDoc(doc(db, `categories/${category.id}/services`, serviceId));
+        setServices(prev => prev.filter(s => s.id !== serviceId));
+        await logAdminAction("SERVICE_DELETE", { serviceId });
+    };
+
+    return (
+        <div className="border rounded-lg bg-white">
+            <div className="p-4 bg-gray-50 flex justify-between items-center cursor-pointer" onClick={toggleExpansion}>
+                <h3 className="text-lg font-bold">{category.name}</h3>
+                <div className="flex gap-2 items-center">
+                    <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); onAddService(); }} className="p-2 text-gray-500 hover:text-green-600"><PlusCircle size={16} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
+                    <ChevronRight className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                </div>
+            </div>
+            {isExpanded && (
+                <div className="overflow-x-auto">
+                    {isLoading ? <p className="p-4 text-center">Loading services...</p> : (
+                        <table className="w-full text-sm">
+                            <thead className="text-left bg-gray-100">
+                                <tr>
+                                    <th className="p-3">ID</th><th className="p-3">Name & Tags</th><th className="p-3">Rate</th><th className="p-3">Cost</th>
+                                    <th className="p-3">Min/Max</th><th className="p-3">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {services.map(service => (
+                                    <tr key={service.id} className="border-t">
+                                        <td className="p-3 font-mono">{service.id_api}</td>
+                                        <td className="p-3 font-semibold">
+                                            {service.name}
+                                            <div className="flex flex-wrap gap-1 mt-1">
+                                                {service.tags?.map(tag => <ServiceTag key={tag} tagName={tag} />)}
+                                            </div>
+                                        </td>
+                                        <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.rate)).toFixed(2)}</td>
+                                        <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.cost || 0)).toFixed(2)}</td>
+                                        <td className="p-3">{service.min} / {service.max}</td>
+                                        <td className="p-3">
+                                            <div className="flex gap-2">
+                                                <button onClick={() => handleDeleteService(service.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {services.length === 0 && (<tr><td colSpan="6" className="text-center p-4 text-gray-500">No services in this category.</td></tr>)}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 
 function CategoryModal({ category, onSave, onClose }) {
     const [name, setName] = useState(category ? category.name : '');
@@ -1600,7 +1592,7 @@ function CategoryModal({ category, onSave, onClose }) {
     );
 }
 
-function ServiceModal({ category, service, onSave, onClose }) {
+function ServiceModal({ category, service, onClose }) {
     const [providers, setProviders] = useState([]);
     const [isFetching, setIsFetching] = useState(false);
     const [formData, setFormData] = useState({
@@ -1654,7 +1646,7 @@ function ServiceModal({ category, service, onSave, onClose }) {
                 min: serviceDetail.min,
                 max: serviceDetail.max,
                 id_api: serviceDetail.service,
-                description: serviceDetail.description || '', // Fetch description
+                description: serviceDetail.dripfeed || '',
             }));
         } catch (error) {
             alert(`Failed to fetch from provider: ${error.message}`);
@@ -1663,9 +1655,27 @@ function ServiceModal({ category, service, onSave, onClose }) {
         }
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        onSave(formData);
+        const dataToSave = {
+            ...formData,
+            rate: parseFloat(formData.rate) || 0,
+            cost: parseFloat(formData.cost) || 0,
+            min: parseInt(formData.min, 10) || 0,
+            max: parseInt(formData.max, 10) || 0,
+            tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
+        };
+        delete dataToSave.providerServiceId; 
+
+        if (service) {
+            const serviceRef = doc(db, `categories/${category.id}/services`, service.id);
+            await updateDoc(serviceRef, dataToSave);
+            await logAdminAction("SERVICE_UPDATE", { serviceId: service.id, ...dataToSave });
+        } else {
+            const docRef = await addDoc(collection(db, `categories/${category.id}/services`), dataToSave);
+            await logAdminAction("SERVICE_CREATE", { serviceId: docRef.id, categoryId: category.id, ...dataToSave });
+        }
+        onClose();
     };
 
     return (
@@ -1713,6 +1723,7 @@ function ServiceModal({ category, service, onSave, onClose }) {
         </div>
     );
 }
+// --- AllOrdersPage and other components start here ---
 
 // --- All Orders Page ---
 function AllOrdersPage() {
@@ -1721,21 +1732,19 @@ function AllOrdersPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [currentPage, setCurrentPage] = useState(1);
+    const [viewingOrder, setViewingOrder] = useState(null);
     const ordersPerPage = 20;
 
     useEffect(() => {
         setLoading(true);
-        // Listener for all orders across all users
         const ordersQuery = query(collectionGroup(db, 'orders'), orderBy('createdAt', 'desc'));
         const unsubscribeOrders = onSnapshot(ordersQuery, async (ordersSnapshot) => {
-            // Fetch all users and services once to create lookup maps
             const usersQuery = await getDocs(collection(db, 'users'));
             const usersMap = new Map(usersQuery.docs.map(doc => [doc.id, doc.data()]));
 
             const servicesQuery = await getDocs(collectionGroup(db, 'services'));
             const servicesMap = new Map();
             servicesQuery.forEach(doc => {
-               // We use the firestore doc.id as the key, which is stored as `firestoreServiceId` on the order
                 servicesMap.set(doc.id, doc.data());
             });
 
@@ -1746,9 +1755,8 @@ function AllOrdersPage() {
                     ...doc.data()
                 };
                 
-                // Enrich order data with user and service info
                 const user = usersMap.get(order.userId);
-                const service = servicesMap.get(order.firestoreServiceId); // Match using firestoreServiceId
+                const service = servicesMap.get(order.firestoreServiceId);
                 
                 const cost = service?.cost ? (order.quantity / 1000) * service.cost : 0;
                 const profit = order.charge - cost;
@@ -1772,18 +1780,22 @@ function AllOrdersPage() {
         return () => unsubscribeOrders();
     }, []);
 
-    const handleStatusChange = async (order, newStatus) => {
+    const handleStatusChange = async (order, newStatus, startCount, remains) => {
         const orderRef = doc(db, `users/${order.userId}/orders`, order.id);
         try {
-            await updateDoc(orderRef, { status: newStatus });
-            await logAdminAction("ORDER_STATUS_MANUAL_CHANGE", { orderId: order.id, newStatus });
+            await updateDoc(orderRef, { 
+                status: newStatus,
+                start_count: startCount,
+                remains: remains
+            });
+            await logAdminAction("ORDER_STATUS_MANUAL_CHANGE", { orderId: order.id, newStatus, startCount, remains });
+            setViewingOrder(null); // Close modal on success
         } catch (error) {
             console.error("Failed to update order status:", error);
             alert("Error: Could not update status.");
         }
     };
 
-    // Filtering logic
     const filteredOrders = useMemo(() => {
         return allData
             .filter(o => statusFilter === 'All' || o.status === statusFilter)
@@ -1795,7 +1807,6 @@ function AllOrdersPage() {
             );
     }, [allData, statusFilter, searchTerm]);
 
-    // Pagination logic
     const indexOfLastOrder = currentPage * ordersPerPage;
     const indexOfFirstOrder = indexOfLastOrder - ordersPerPage;
     const currentOrders = filteredOrders.slice(indexOfFirstOrder, indexOfLastOrder);
@@ -1864,16 +1875,12 @@ function AllOrdersPage() {
                                 <td className="p-3">{finalCount}</td>
                                 <td className="p-3 font-semibold">{CURRENCY_SYMBOL}{(order.charge || 0).toFixed(2)}</td>
                                 <td className="p-3 font-semibold text-green-600">{CURRENCY_SYMBOL}{(order.profit || 0).toFixed(2)}</td>
-                                <td className="p-3">
-                                    <select value={order.status} onChange={(e) => handleStatusChange(order, e.target.value)} className="p-1 border rounded text-xs">
-                                        {['Pending', 'Processing', 'Completed', 'Canceled', 'Partial', 'Error'].map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                </td>
+                                <td className="p-3"><StatusBadge status={order.status} /></td>
                                 <td className="p-3">
                                     <div className="flex gap-2">
+                                        <button onClick={() => setViewingOrder(order)} className="p-2 bg-gray-200 rounded hover:bg-gray-300" title="View & Edit Order"><EyeIcon size={14} /></button>
                                         <button className="p-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200" title="Refill"><RefreshCw size={14} /></button>
                                         <button className="p-2 bg-red-100 text-red-600 rounded hover:bg-red-200" title="Cancel"><Ban size={14} /></button>
-                                        <button className="p-2 bg-green-100 text-green-600 rounded hover:bg-green-200" title="Reorder"><Repeat size={14} /></button>
                                     </div>
                                 </td>
                             </tr>
@@ -1883,7 +1890,6 @@ function AllOrdersPage() {
                 {filteredOrders.length === 0 && <p className="text-center py-4 text-gray-500">No orders found.</p>}
             </div>
             
-            {/* Pagination Controls */}
             <div className="mt-4 flex justify-between items-center">
                 <span className="text-sm text-gray-700">
                     Showing {indexOfFirstOrder + 1} to {Math.min(indexOfLastOrder, filteredOrders.length)} of {filteredOrders.length} orders
@@ -1893,41 +1899,40 @@ function AllOrdersPage() {
                     <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 bg-gray-200 rounded disabled:opacity-50 flex items-center gap-1">Next <ChevronRight size={16}/></button>
                 </div>
             </div>
+            {viewingOrder && <OrderEditModal order={viewingOrder} onClose={() => setViewingOrder(null)} onUpdate={handleStatusChange} />}
         </div>
     );
 }
 
 function OrderEditModal({ order, onClose, onUpdate }) {
     const [status, setStatus] = useState(order.status);
+    const [startCount, setStartCount] = useState(order.start_count || 0);
+    const [remains, setRemains] = useState(order.remains || 0);
 
-    const handleStatusUpdate = async () => {
-        const orderRef = doc(db, `users/${order.userId}/orders`, order.id);
-        await updateDoc(orderRef, { status: status });
-        await logAdminAction("ORDER_STATUS_CHANGE", { orderId: order.id, newStatus: status });
-        onUpdate(prev => prev.map(o => (o.id === order.id && o.userId === order.userId) ? { ...o, status: status } : o));
-        onClose();
+    const handleUpdate = () => {
+        onUpdate(order, status, parseInt(startCount, 10), parseInt(remains, 10));
     };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-                <div className="p-4 border-b flex justify-between items-center"><h3 className="text-lg font-bold">Manage Order: {order.orderId}</h3><button onClick={onClose}><X /></button></div>
-                <div className="p-6 space-y-3">
+                <div className="p-4 border-b flex justify-between items-center"><h3 className="text-lg font-bold">Manage Order: {order.id}</h3><button onClick={onClose}><X /></button></div>
+                <div className="p-6 space-y-4">
                     <p><span className="font-semibold">User:</span> {order.userEmail}</p>
                     <p><span className="font-semibold">Service:</span> {order.serviceName}</p>
                     <p><span className="font-semibold">Link:</span> <a href={order.link} target="_blank" rel="noopener noreferrer" className="text-blue-500 break-all">{order.link}</a></p>
-                    <div className="flex items-center gap-4">
-                        <p><span className="font-semibold">Quantity:</span> {order.quantity}</p>
-                        <p><span className="font-semibold">Charge:</span> {CURRENCY_SYMBOL}{(order.charge || 0).toFixed(2)}</p>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="font-semibold block mb-1">Start Count:</label><input type="number" value={startCount} onChange={(e) => setStartCount(e.target.value)} className="w-full p-2 border rounded" /></div>
+                        <div><label className="font-semibold block mb-1">Remains:</label><input type="number" value={remains} onChange={(e) => setRemains(e.target.value)} className="w-full p-2 border rounded" /></div>
                     </div>
                     <div>
                         <label className="font-semibold block mb-1">Status:</label>
                         <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full p-2 border rounded">
-                            <option>Pending</option><option>Processing</option><option>Completed</option><option>Canceled</option><option>Partial</option>
+                            {['Pending', 'Processing', 'Completed', 'Canceled', 'Partial', 'Error'].map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     </div>
                 </div>
-                <div className="p-4 bg-gray-50 flex justify-end gap-4"><button onClick={onClose} className="bg-gray-300 px-4 py-2 rounded">Cancel</button><button onClick={handleStatusUpdate} className="bg-blue-600 text-white px-4 py-2 rounded">Update Status</button></div>
+                <div className="p-4 bg-gray-50 flex justify-end gap-4"><button onClick={onClose} className="bg-gray-300 px-4 py-2 rounded">Cancel</button><button onClick={handleUpdate} className="bg-blue-600 text-white px-4 py-2 rounded">Update Status</button></div>
             </div>
         </div>
     );
@@ -1940,12 +1945,9 @@ function SupportTicketsPage() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Query to get tickets and order them by creation date
         const q = query(collection(db, 'tickets'), orderBy("createdAt", "desc"));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            // **FIX:** Filter out documents that are missing a valid 'createdAt' field.
-            // This prevents the '.toDate()' method from being called on null or undefined, which causes the crash.
             const ticketsData = snapshot.docs
                 .filter(doc => doc.data().createdAt && typeof doc.data().createdAt.toDate === 'function')
                 .map(doc => ({
@@ -1956,7 +1958,6 @@ function SupportTicketsPage() {
             setTickets(ticketsData);
             setLoading(false);
         }, (error) => {
-            // Log any errors from the query itself
             console.error("Error fetching support tickets: ", error);
             setLoading(false);
         });
@@ -1964,7 +1965,6 @@ function SupportTicketsPage() {
         return () => unsubscribe();
     }, []);
 
-    // This function is passed down to the modal to update the list's state
     const handleStatusChange = (updatedTicket, newStatus) => {
         setTickets(prev => prev.map(t => (t.id === updatedTicket.id ? { ...t, status: newStatus } : t)));
         if (viewingTicket && viewingTicket.id === updatedTicket.id) {
@@ -1999,16 +1999,14 @@ function SupportTicketsPage() {
     )
 }
 
-// --- CORRECTED Ticket View Modal ---
+// --- Ticket View Modal ---
 function TicketViewModal({ ticket, onClose, onStatusChange }) {
     const [reply, setReply] = useState('');
 
     const handleReply = async () => {
         if (!reply) return;
 
-        // The ticket.id is now the custom ID (e.g., TKT-123456)
         const mainTicketRef = doc(db, "tickets", ticket.id);
-        // We can now directly reference the user's ticket document
         const userTicketRef = doc(db, `users/${ticket.userId}/tickets`, ticket.id);
 
         const newReply = { message: reply, from: 'admin', timestamp: Timestamp.now() };
@@ -2016,13 +2014,11 @@ function TicketViewModal({ ticket, onClose, onStatusChange }) {
 
         const batch = writeBatch(db);
 
-        // Update main ticket
         batch.update(mainTicketRef, {
             replies: updatedReplies,
             status: "Answered"
         });
 
-        // Update user's copy of the ticket
         batch.update(userTicketRef, {
             replies: updatedReplies,
             status: "Answered"
@@ -2032,14 +2028,13 @@ function TicketViewModal({ ticket, onClose, onStatusChange }) {
             await batch.commit();
             await logAdminAction("TICKET_REPLY", { ticketId: ticket.id });
             setReply('');
-            onClose(); // Close the modal on successful reply
+            onClose();
         } catch (error) {
             console.error("Failed to send reply and update tickets:", error);
-            alert("Error: Could not send reply. The user's ticket might not exist or there's a permission issue.");
+            alert("Error: Could not send reply.");
         }
     };
 
-    // This function now correctly targets both documents
     const handleLocalStatusChange = async (newStatus) => {
         const mainTicketRef = doc(db, 'tickets', ticket.id);
         const userTicketRef = doc(db, `users/${ticket.userId}/tickets`, ticket.id);
@@ -2051,7 +2046,6 @@ function TicketViewModal({ ticket, onClose, onStatusChange }) {
         try {
             await batch.commit();
             await logAdminAction("TICKET_STATUS_CHANGE", { ticketId: ticket.id, newStatus });
-            // This now calls the function passed from the parent to update the main list
             onStatusChange(ticket, newStatus);
         } catch (error) {
             console.error("Failed to update status on both tickets:", error);
@@ -2314,7 +2308,6 @@ function PaymentMethodsPage() {
     const [editingManualMethod, setEditingManualMethod] = useState(null);
     const [confirmAction, setConfirmAction] = useState(null);
 
-    // Fetch Manual Methods
     useEffect(() => {
         const q = query(collection(db, "payment_methods"), orderBy("name"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -2363,7 +2356,6 @@ function PaymentMethodsPage() {
         <div className="bg-white/80 backdrop-blur-sm p-6 rounded-lg shadow">
             {confirmAction && <ConfirmationModal message={confirmAction.message} onConfirm={confirmAction.onConfirm} onCancel={() => setConfirmAction(null)} />}
             
-            {/* Manual Payment Methods Section */}
             <div className="mb-8">
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-2xl font-semibold">Manual Payment Methods</h2>
@@ -2376,11 +2368,11 @@ function PaymentMethodsPage() {
                         <thead className="text-left bg-gray-100">
                             <tr>
                                 <th className="p-3">Method Name</th>
-                                <th className="p-3">Logo</th> {/* Added Logo Column */}
+                                <th className="p-3">Logo</th>
                                 <th className="p-3">Account Name</th>
                                 <th className="p-3">Account Number</th>
                                 <th className="p-3">Status</th>
-                                <th className="p-3">Description</th> {/* Added Description Column */}
+                                <th className="p-3">Description</th>
                                 <th className="p-3">Actions</th>
                             </tr>
                         </thead>
@@ -2422,27 +2414,22 @@ function PaymentMethodsPage() {
     );
 }
 
-// Helper function to format description with basic Markdown
 const formatDescription = (text) => {
     if (!text) return '';
-    // Replace **bold** with <strong>
     let formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    // Replace *italics* with <em>
     formattedText = formattedText.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    // Replace newlines with <br>
     formattedText = formattedText.replace(/\n/g, '<br>');
     return formattedText;
 };
 
-// Manual Payment Method Modal (updated for rich text description and logo URL)
 function PaymentMethodModal({ method, onSave, onClose }) {
     const [formData, setFormData] = useState({
         name: method ? method.name : '',
         accountName: method ? method.accountName : '',
         accountNumber: method ? method.accountNumber : '',
-        logoUrl: method ? method.logoUrl : '', // Manual methods can now have logos
+        logoUrl: method ? method.logoUrl : '',
         status: method ? method.status : 'active',
-        description: method ? method.description : '', // New: description field
+        description: method ? method.description : '',
     });
 
     const handleChange = (e) => {
@@ -2522,19 +2509,15 @@ function ManageRanksPage() {
 
     const handleRefreshLeaderboard = async () => {
         setIsRefreshing(true);
-        // This is a simplified client-side implementation.
-        // For production, use a Cloud Function triggered on a schedule or after relevant events.
         const usersQuery = query(collection(db, "users"), orderBy("totalSpent", "desc"), limit(10));
         const usersSnapshot = await getDocs(usersQuery);
 
         const batch = writeBatch(db);
 
-        // Clear old leaderboard
         const oldLeaderboardQuery = query(collection(db, "public/data/leaderboard"));
         const oldLeaderboardSnapshot = await getDocs(oldLeaderboardQuery);
         oldLeaderboardSnapshot.forEach(doc => batch.delete(doc.ref));
 
-        // Set new leaderboard
         usersSnapshot.docs.forEach((userDoc, index) => {
             const userData = userDoc.data();
             const leaderboardRef = doc(db, "public/data/leaderboard", userDoc.id);
@@ -2874,7 +2857,6 @@ function ImportServiceModal({ categories, onClose }) {
             const provider = providers.find(p => p.id === selectedProvider);
             const services = await callProviderApi(provider, 'services');
             
-            // Group services by category
             const grouped = services.reduce((acc, service) => {
                 const category = service.category || 'Uncategorized';
                 if (!acc[category]) {
@@ -2898,13 +2880,13 @@ function ImportServiceModal({ categories, onClose }) {
 
         const updatedSelection = { ...selectedServices };
         for (const service of servicesInCategory) {
-            if (localCategoryId) { // If a local category is selected, add/update the service
+            if (localCategoryId) {
                 updatedSelection[service.service] = {
                     ...updatedSelection[service.service],
                     categoryId: localCategoryId,
                     selected: true,
                 };
-            } else { // If "Select Category" is chosen, deselect the service
+            } else {
                 if (updatedSelection[service.service]) {
                     updatedSelection[service.service].selected = false;
                 }
@@ -2942,7 +2924,6 @@ function ImportServiceModal({ categories, onClose }) {
 
         for (const [serviceId, details] of servicesToImport) {
             let serviceData = null;
-            // Find the service data from the original groupedServices
             for(const category in groupedServices){
                 const foundService = groupedServices[category].find(s => s.service === serviceId);
                 if(foundService){
@@ -2966,7 +2947,8 @@ function ImportServiceModal({ categories, onClose }) {
                 providerId: selectedProvider,
                 providerServiceId: serviceData.service,
                 category: categories.find(c => c.id === details.categoryId)?.name || 'Uncategorized',
-                description: serviceData.description || '', // Import the description
+                description: serviceData.description || '',
+                tags: serviceData.tags || [],
             };
 
             const serviceRef = doc(collection(db, `categories/${details.categoryId}/services`));
@@ -3059,7 +3041,6 @@ function ImportServiceModal({ categories, onClose }) {
                                     </div>
                                     {expandedCategories[categoryName] && (
                                         <div className="overflow-x-auto">
-                                            {/* You can add a table here to show individual services if needed */}
                                             <p className="p-4 text-sm text-gray-600">All {services.length} services in this category will be assigned to the selected local category.</p>
                                         </div>
                                     )}
@@ -3086,25 +3067,23 @@ function ImportServiceModal({ categories, onClose }) {
     );
 }
 
-
 // --- Helper Components ---
 const StatusBadge = ({ status }) => {
     const statusMap = {
         Completed: 'bg-green-100 text-green-800', completed: 'bg-green-100 text-green-800',
         Processing: 'bg-blue-100 text-blue-800',
         Pending: 'bg-yellow-100 text-yellow-800', pending: 'bg-yellow-100 text-yellow-800',
-        Canceled: 'bg-red-100 text-red-800', canceled: 'bg-red-100 text-red-800', // Added 'canceled' lowercase
+        Canceled: 'bg-red-100 text-red-800', canceled: 'bg-red-100 text-red-800',
         Partial: 'bg-purple-100 text-purple-800',
         Open: 'bg-sky-100 text-sky-800',
         Answered: 'bg-indigo-100 text-indigo-800',
         Resolved: 'bg-gray-100 text-gray-800', 'resolved': 'bg-gray-200 text-gray-800',
         rejected: 'bg-red-100 text-red-800',
-        failed: 'bg-red-200 text-red-800', // Added 'failed'
+        failed: 'bg-red-200 text-red-800',
     };
     return (<span className={`px-2.5 py-1 text-xs font-semibold rounded-full capitalize ${statusMap[status] || 'bg-gray-100 text-gray-800'}`}>{status}</span>);
 };
 
-// --- NEW Service Tag Component (for Admin Panel) ---
 const ServiceTag = ({ tagName }) => {
     const tagStyles = {
         'High Quality': 'bg-amber-100 text-amber-800',
@@ -3123,8 +3102,6 @@ const ServiceTag = ({ tagName }) => {
     );
 };
 
-
-// --- NEW Confirmation Modal ---
 function ConfirmationModal({ message, onConfirm, onCancel }) {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-[100] p-4">
