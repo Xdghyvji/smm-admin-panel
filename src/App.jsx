@@ -2,21 +2,15 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, query, onSnapshot, doc, getDoc, updateDoc, orderBy, getDocs, where, addDoc, collectionGroup, writeBatch, Timestamp, deleteDoc, setDoc, limit, runTransaction } from 'firebase/firestore';
-import { Users, DollarSign, LifeBuoy, LogOut, Check, X, Eye as EyeIcon, Edit, ShoppingCart, UserPlus, Slash, BarChart, Settings, PlusCircle, Trash2, Send, Crown, CreditCard, Palette, Gift, Trophy, RefreshCw, Star, Sun, Moon, Droplets, Flame, Leaf, Zap, Mountain, Wind, Server, TrendingUp, FileText, Activity, AlertTriangle, ChevronsUpDown, Repeat, Ban, ChevronLeft, ChevronRight, Info, Search } from 'lucide-react';
+import { Users, DollarSign, LifeBuoy, LogOut, Check, X, Eye as EyeIcon, Edit, ShoppingCart, UserPlus, Slash, BarChart, Settings, PlusCircle, Trash2, Send, Crown, CreditCard, Palette, Gift, Trophy, RefreshCw, Star, Sun, Moon, Droplets, Flame, Leaf, Zap, Mountain, Wind, Server, TrendingUp, FileText, Activity, AlertTriangle, ChevronsUpDown, Repeat, Ban, ChevronLeft, ChevronRight, Info, Search, GripVertical } from 'lucide-react';
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 
 // --- Firebase Configuration ---
-// IMPORTANT: In a real production app, use environment variables for this configuration.
-const firebaseConfig = {
-    apiKey: "AIzaSyBgjU9fzFsfx6-gv4p0WWH77_U5BPk69A0",
-    authDomain: "smmp-4b3cc.firebaseapp.com",
-    projectId: "smmp-4b3cc",
-    storageBucket: "smmp-4b3cc.firebasestorage.app",
-    messagingSenderId: "43467456148",
-    appId: "1:43467456148:web:368b011abf362791edfe81",
-    measurementId: "G-Y6HBHEL742"
-};
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+    ? JSON.parse(__firebase_config) 
+    : { apiKey: "AIza...", authDomain: "...", projectId: "..." };
 
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'smm-panel-default';
 
 // --- Firebase Initialization ---
 const app = initializeApp(firebaseConfig);
@@ -29,7 +23,6 @@ const CURRENCY_SYMBOL = 'Rs';
 const COMMISSION_RATE = 0.05; // 5%
 
 // --- SECURE API Helper Function ---
-// This function now securely calls our Netlify proxy function instead of the provider's API directly.
 const callProviderApi = async (provider, action, params = {}) => {
     console.log(`[callProviderApi] Calling proxy for provider: ${provider.name}, action: ${action}`);
     
@@ -1389,6 +1382,7 @@ function ManageServicesPage() {
     const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
+    const [draggedItem, setDraggedItem] = useState(null);
 
     useEffect(() => {
         const q = query(collection(db, "categories"), orderBy("order", "asc"));
@@ -1400,14 +1394,43 @@ function ManageServicesPage() {
         return () => unsubscribe();
     }, []);
 
+    const handleDragStart = (e, index) => {
+        setDraggedItem(index);
+    };
+
+    const handleDragOver = (e, index) => {
+        e.preventDefault();
+        if (draggedItem === null || draggedItem === index) return;
+
+        const newCategories = [...categories];
+        const [draggedCategory] = newCategories.splice(draggedItem, 1);
+        newCategories.splice(index, 0, draggedCategory);
+        
+        setDraggedItem(index);
+        setCategories(newCategories);
+    };
+
+    const handleDragEnd = async () => {
+        if (draggedItem === null) return;
+        
+        const batch = writeBatch(db);
+        categories.forEach((cat, index) => {
+            const catRef = doc(db, "categories", cat.id);
+            batch.update(catRef, { order: index });
+        });
+        await batch.commit();
+        await logAdminAction("CATEGORIES_REORDERED", {});
+        setDraggedItem(null);
+    };
+
     const handleCategorySave = async (categoryData) => {
         if (editingCategory) {
             const categoryRef = doc(db, "categories", editingCategory.id);
-            await updateDoc(categoryRef, { name: categoryData.name });
+            await updateDoc(categoryRef, { name: categoryData.name, iconUrl: categoryData.iconUrl || null });
             await logAdminAction("CATEGORY_UPDATE", { categoryId: editingCategory.id, name: categoryData.name });
         } else {
             const newOrder = categories.length;
-            const docRef = await addDoc(collection(db, "categories"), { name: categoryData.name, order: newOrder });
+            const docRef = await addDoc(collection(db, "categories"), { name: categoryData.name, order: newOrder, iconUrl: categoryData.iconUrl || null });
             await logAdminAction("CATEGORY_CREATE", { categoryId: docRef.id, name: categoryData.name });
         }
         setEditingCategory(null);
@@ -1443,15 +1466,23 @@ function ManageServicesPage() {
                     <button onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"><PlusCircle size={18} />Add Category</button>
                 </div>
             </div>
-            <div className="space-y-4">
-                {categories.map((cat) => (
-                    <CategoryItem 
+            <div className="space-y-2">
+                {categories.map((cat, index) => (
+                    <div 
                         key={cat.id}
-                        category={cat} 
-                        onEdit={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }}
-                        onAddService={() => { setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }}
-                        onDelete={() => handleDeleteCategory(cat.id)}
-                    />
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragEnd={handleDragEnd}
+                        className="cursor-grab"
+                    >
+                        <CategoryItem 
+                            category={cat} 
+                            onEdit={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }}
+                            onAddService={() => { setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }}
+                            onDelete={() => handleDeleteCategory(cat.id)}
+                        />
+                    </div>
                 ))}
             </div>
 
@@ -1487,7 +1518,11 @@ const CategoryItem = ({ category, onEdit, onAddService, onDelete }) => {
     return (
         <div className="border rounded-lg bg-white">
             <div className="p-4 bg-gray-50 flex justify-between items-center cursor-pointer" onClick={toggleExpansion}>
-                <h3 className="text-lg font-bold">{category.name}</h3>
+                <div className="flex items-center gap-3">
+                    <GripVertical className="text-gray-400 cursor-grab" />
+                    {category.iconUrl && <img src={category.iconUrl} alt={category.name} className="w-8 h-8 object-contain rounded-md" />}
+                    <h3 className="text-lg font-bold">{category.name}</h3>
+                </div>
                 <div className="flex gap-2 items-center">
                     <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
                     <button onClick={(e) => { e.stopPropagation(); onAddService(); }} className="p-2 text-gray-500 hover:text-green-600"><PlusCircle size={16} /></button>
@@ -1538,17 +1573,26 @@ const CategoryItem = ({ category, onEdit, onAddService, onDelete }) => {
 
 function CategoryModal({ category, onSave, onClose }) {
     const [name, setName] = useState(category ? category.name : '');
+    const [iconUrl, setIconUrl] = useState(category ? category.iconUrl : '');
+
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSave({ name });
+        onSave({ name, iconUrl });
     };
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
             <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-xl w-full max-w-md">
                 <div className="p-4 border-b"><h3 className="text-lg font-bold">{category ? 'Edit' : 'Add'} Category</h3></div>
-                <div className="p-6">
-                    <label className="block text-sm font-medium mb-1">Category Name</label>
-                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2 border rounded" required />
+                <div className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Category Name</label>
+                        <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2 border rounded" required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Icon URL (Optional)</label>
+                        <input type="text" value={iconUrl} onChange={(e) => setIconUrl(e.target.value)} className="w-full p-2 border rounded" placeholder="https://example.com/icon.png" />
+                        {iconUrl && <img src={iconUrl} alt="Icon Preview" className="mt-2 w-16 h-16 object-contain rounded" />}
+                    </div>
                 </div>
                 <div className="p-4 bg-gray-50 flex justify-end gap-4">
                     <button type="button" onClick={onClose} className="bg-gray-200 px-4 py-2 rounded">Cancel</button>
@@ -2888,7 +2932,38 @@ function ImportServiceModal({ categories, onClose }) {
 
         const batch = writeBatch(db);
         let count = 0;
+        const newCategoriesToCreate = {};
 
+        // First pass: identify new categories to create
+        for (const [serviceId, details] of servicesToImport) {
+            if (details.categoryId === "CREATE_NEW") {
+                 let serviceData = null;
+                for(const category in groupedServices){
+                    const foundService = groupedServices[category].find(s => s.service === serviceId);
+                    if(foundService){
+                        serviceData = foundService;
+                        break;
+                    }
+                }
+                if (serviceData && !newCategoriesToCreate[serviceData.category]) {
+                    newCategoriesToCreate[serviceData.category] = {
+                        name: serviceData.category,
+                        order: categories.length + Object.keys(newCategoriesToCreate).length,
+                        iconUrl: null
+                    };
+                }
+            }
+        }
+        
+        // Create new categories
+        const newCategoryIds = {};
+        for (const categoryName in newCategoriesToCreate) {
+            const newCategoryData = newCategoriesToCreate[categoryName];
+            const docRef = await addDoc(collection(db, "categories"), newCategoryData);
+            newCategoryIds[categoryName] = docRef.id;
+        }
+
+        // Second pass: import services
         for (const [serviceId, details] of servicesToImport) {
             let serviceData = null;
             for(const category in groupedServices){
@@ -2900,6 +2975,11 @@ function ImportServiceModal({ categories, onClose }) {
             }
 
             if (!serviceData) continue;
+
+            let finalCategoryId = details.categoryId;
+            if (finalCategoryId === "CREATE_NEW") {
+                finalCategoryId = newCategoryIds[serviceData.category];
+            }
 
             const cost = parseFloat(serviceData.rate);
             const newRate = cost * (1 + rateIncrease / 100);
@@ -2913,12 +2993,12 @@ function ImportServiceModal({ categories, onClose }) {
                 max: parseInt(serviceData.max, 10) || 0,
                 providerId: selectedProvider,
                 providerServiceId: serviceData.service,
-                category: categories.find(c => c.id === details.categoryId)?.name || 'Uncategorized',
+                category: categories.find(c => c.id === finalCategoryId)?.name || serviceData.category,
                 description: serviceData.description || '',
                 tags: serviceData.tags || [],
             };
 
-            const serviceRef = doc(collection(db, `categories/${details.categoryId}/services`));
+            const serviceRef = doc(collection(db, `categories/${finalCategoryId}/services`));
             batch.set(serviceRef, newService);
             count++;
         }
@@ -3001,6 +3081,7 @@ function ImportServiceModal({ categories, onClose }) {
                                                 className="p-1 border rounded text-xs"
                                             >
                                                 <option value="">Select Local Category</option>
+                                                <option value="CREATE_NEW">Create New Category from Provider</option>
                                                 {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                                             </select>
                                             <ChevronRight className={`transition-transform ${expandedCategories[categoryName] ? 'rotate-90' : ''}`} />
