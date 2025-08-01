@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import ReactDOM from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, query, onSnapshot, doc, getDoc, updateDoc, orderBy, getDocs, where, addDoc, collectionGroup, writeBatch, Timestamp, deleteDoc, setDoc, limit, runTransaction } from 'firebase/firestore';
@@ -3208,8 +3207,4 @@ function ConfirmationModal({ message, onConfirm, onCancel }) {
     );
 }
 
-const container = document.getElementById('root');
-if (container) {
-    const root = createRoot(container);
-    root.render(<App />);
-}
+export default App;
