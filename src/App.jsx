@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, query, onSnapshot, doc, getDoc, updateDoc, orderBy, getDocs, where, addDoc, collectionGroup, writeBatch, Timestamp, deleteDoc, setDoc, limit, runTransaction } from 'firebase/firestore';
@@ -6,15 +7,9 @@ import { Users, DollarSign, LifeBuoy, LogOut, Check, X, Eye as EyeIcon, Edit, Sh
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 
 // --- Firebase Configuration ---
-const firebaseConfig = {
-    apiKey: "AIzaSyBgjU9fzFsfx6-gv4p0WWH77_U5BPk69A0",
-    authDomain: "smmp-4b3cc.firebaseapp.com",
-    projectId: "smmp-4b3cc",
-    storageBucket: "smmp-4b3cc.firebasestorage.app",
-    messagingSenderId: "43467456148",
-    appId: "1:43467456148:web:368b011abf362791edfe81",
-    measurementId: "G-Y6HBHEL742"
-};
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+    ? JSON.parse(__firebase_config) 
+    : { apiKey: "AIza...", authDomain: "...", projectId: "..." };
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'smm-panel-default';
 
@@ -1487,19 +1482,20 @@ function ManageServicesPage() {
                             onEdit={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }}
                             onAddService={() => { setEditingCategory(cat); setEditingService(null); setIsServiceModalOpen(true); }}
                             onDelete={() => handleDeleteCategory(cat.id)}
+                            onEditService={(service) => { setEditingCategory(cat); setEditingService(service); setIsServiceModalOpen(true); }}
                         />
                     </div>
                 ))}
             </div>
 
             {isCategoryModalOpen && <CategoryModal category={editingCategory} onSave={handleCategorySave} onClose={() => setIsCategoryModalOpen(false)} />}
-            {isServiceModalOpen && <ServiceModal category={editingCategory} service={editingService} onClose={() => setIsServiceModalOpen(false)} />}
+            {isServiceModalOpen && <ServiceModal categories={categories} category={editingCategory} service={editingService} onClose={() => setIsServiceModalOpen(false)} />}
             {isImportModalOpen && <ImportServiceModal categories={categories} onClose={() => setIsImportModalOpen(false)} />}
         </div>
     );
 }
 
-const CategoryItem = ({ category, onEdit, onAddService, onDelete }) => {
+const CategoryItem = ({ category, onEdit, onAddService, onDelete, onEditService }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [services, setServices] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -1542,12 +1538,14 @@ const CategoryItem = ({ category, onEdit, onAddService, onDelete }) => {
                         <table className="w-full text-sm">
                             <thead className="text-left bg-gray-100">
                                 <tr>
-                                    <th className="p-3">ID</th><th className="p-3">Name & Tags</th><th className="p-3">Rate</th><th className="p-3">Cost</th>
+                                    <th className="p-3">ID</th><th className="p-3">Name & Tags</th><th className="p-3">Rate</th><th className="p-3">Cost</th><th className="p-3">Profit</th>
                                     <th className="p-3">Min/Max</th><th className="p-3">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {services.map(service => (
+                                {services.map(service => {
+                                    const profit = (service.rate || 0) - (service.cost || 0);
+                                    return (
                                     <tr key={service.id} className="border-t">
                                         <td className="p-3 font-mono">{service.id_api}</td>
                                         <td className="p-3 font-semibold">
@@ -1558,15 +1556,17 @@ const CategoryItem = ({ category, onEdit, onAddService, onDelete }) => {
                                         </td>
                                         <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.rate)).toFixed(2)}</td>
                                         <td className="p-3">{CURRENCY_SYMBOL}{(parseFloat(service.cost || 0)).toFixed(2)}</td>
+                                        <td className={`p-3 font-semibold ${profit > 0 ? 'text-green-600' : 'text-red-600'}`}>{CURRENCY_SYMBOL}{profit.toFixed(2)}</td>
                                         <td className="p-3">{service.min} / {service.max}</td>
                                         <td className="p-3">
                                             <div className="flex gap-2">
+                                                <button onClick={() => onEditService(service)} className="p-2 text-gray-500 hover:text-blue-600"><Edit size={16} /></button>
                                                 <button onClick={() => handleDeleteService(service.id)} className="p-2 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
-                                {services.length === 0 && (<tr><td colSpan="6" className="text-center p-4 text-gray-500">No services in this category.</td></tr>)}
+                                )})}
+                                {services.length === 0 && (<tr><td colSpan="7" className="text-center p-4 text-gray-500">No services in this category.</td></tr>)}
                             </tbody>
                         </table>
                     )}
@@ -1609,7 +1609,7 @@ function CategoryModal({ category, onSave, onClose }) {
     );
 }
 
-function ServiceModal({ category, service, onClose }) {
+function ServiceModal({ categories, category, service, onClose }) {
     const [providers, setProviders] = useState([]);
     const [isFetching, setIsFetching] = useState(false);
     const [formData, setFormData] = useState({
@@ -1621,7 +1621,7 @@ function ServiceModal({ category, service, onClose }) {
         max: service ? service.max : 0,
         providerId: service ? service.providerId : '',
         providerServiceId: service ? service.providerServiceId : '',
-        category: category ? category.name : '',
+        category: category ? category.id : '',
         description: service ? service.description : '',
         tags: service && service.tags ? service.tags.join(', ') : '',
     });
@@ -1675,25 +1675,46 @@ function ServiceModal({ category, service, onClose }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
         const dataToSave = {
-            ...formData,
+            name: formData.name,
+            id_api: formData.id_api,
             rate: parseFloat(formData.rate) || 0,
             cost: parseFloat(formData.cost) || 0,
             min: parseInt(formData.min, 10) || 0,
             max: parseInt(formData.max, 10) || 0,
+            providerId: formData.providerId,
+            description: formData.description,
             tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
         };
-        delete dataToSave.providerServiceId; 
 
-        if (service) {
-            const serviceRef = doc(db, `categories/${category.id}/services`, service.id);
-            await updateDoc(serviceRef, dataToSave);
-            await logAdminAction("SERVICE_UPDATE", { serviceId: service.id, ...dataToSave });
-        } else {
+        if (service) { // Editing existing service
+            const originalCategoryId = category.id;
+            const newCategoryId = formData.category;
+
+            if(originalCategoryId === newCategoryId) {
+                // Just update the document
+                const serviceRef = doc(db, `categories/${originalCategoryId}/services`, service.id);
+                await updateDoc(serviceRef, dataToSave);
+                await logAdminAction("SERVICE_UPDATE", { serviceId: service.id, ...dataToSave });
+            } else {
+                // Move the service
+                const batch = writeBatch(db);
+                const oldServiceRef = doc(db, `categories/${originalCategoryId}/services`, service.id);
+                const newServiceRef = doc(collection(db, `categories/${newCategoryId}/services`));
+                
+                batch.delete(oldServiceRef);
+                batch.set(newServiceRef, dataToSave);
+                
+                await batch.commit();
+                await logAdminAction("SERVICE_MOVED", { serviceId: service.id, from: originalCategoryId, to: newCategoryId });
+            }
+        } else { // Adding new service
             const docRef = await addDoc(collection(db, `categories/${category.id}/services`), dataToSave);
             await logAdminAction("SERVICE_CREATE", { serviceId: docRef.id, categoryId: category.id, ...dataToSave });
         }
         onClose();
     };
+    
+    const profit = (formData.rate || 0) - (formData.cost || 0);
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
@@ -1727,8 +1748,17 @@ function ServiceModal({ category, service, onClose }) {
                     <div><label className="block text-sm font-medium mb-1">Internal API ID</label><input type="text" name="id_api" value={formData.id_api} onChange={handleChange} className="w-full p-2 border rounded" required /></div>
                     <div><label className="block text-sm font-medium mb-1">Rate (Price per 1000)</label><input type="number" name="rate" step="0.01" value={formData.rate} onChange={handleChange} className="w-full p-2 border rounded" required /></div>
                     <div><label className="block text-sm font-medium mb-1">Cost (per 1000)</label><input type="number" name="cost" step="0.01" value={formData.cost} onChange={handleChange} className="w-full p-2 border rounded" placeholder="Your cost for this service" required /></div>
+                    <div className="md:col-span-2"><p className="text-sm font-medium">Profit: <span className={`font-bold ${profit > 0 ? 'text-green-600' : 'text-red-600'}`}>{CURRENCY_SYMBOL}{profit.toFixed(2)}</span></p></div>
                     <div><label className="block text-sm font-medium mb-1">Min Order</label><input type="number" name="min" value={formData.min} onChange={handleChange} className="w-full p-2 border rounded" required /></div>
                     <div><label className="block text-sm font-medium mb-1">Max Order</label><input type="number" name="max" value={formData.max} onChange={handleChange} className="w-full p-2 border rounded" required /></div>
+                    {service && (
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium mb-1">Move to Category</label>
+                            <select name="category" value={formData.category} onChange={handleChange} className="w-full p-2 border rounded">
+                                {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                            </select>
+                        </div>
+                    )}
                     <div className="md:col-span-2"><label className="block text-sm font-medium mb-1">Description</label><textarea name="description" value={formData.description} onChange={handleChange} rows="3" className="w-full p-2 border rounded" placeholder="Detailed service description for users."></textarea></div>
                     <div className="md:col-span-2"><label className="block text-sm font-medium mb-1">Tags (comma-separated)</label><input type="text" name="tags" value={formData.tags} onChange={handleChange} className="w-full p-2 border rounded" placeholder="e.g., High Quality, Fast Start, Refill Guarantee" /></div>
                 </div>
@@ -3178,4 +3208,8 @@ function ConfirmationModal({ message, onConfirm, onCancel }) {
     );
 }
 
-export default App;
+const container = document.getElementById('root');
+if (container) {
+    const root = createRoot(container);
+    root.render(<App />);
+}
