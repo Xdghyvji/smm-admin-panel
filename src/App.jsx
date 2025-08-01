@@ -6,9 +6,15 @@ import { Users, DollarSign, LifeBuoy, LogOut, Check, X, Eye as EyeIcon, Edit, Sh
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 
 // --- Firebase Configuration ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
-    ? JSON.parse(__firebase_config) 
-    : { apiKey: "AIza...", authDomain: "...", projectId: "..." };
+const firebaseConfig = {
+    apiKey: "AIzaSyBgjU9fzFsfx6-gv4p0WWH77_U5BPk69A0",
+    authDomain: "smmp-4b3cc.firebaseapp.com",
+    projectId: "smmp-4b3cc",
+    storageBucket: "smmp-4b3cc.firebasestorage.app",
+    messagingSenderId: "43467456148",
+    appId: "1:43467456148:web:368b011abf362791edfe81",
+    measurementId: "G-Y6HBHEL742"
+};
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'smm-panel-default';
 
